@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+mpg_log.csv
+
+# Android (see android/.gitignore for the rest)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.idea/
+*.iml
