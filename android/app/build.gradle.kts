@@ -12,6 +12,7 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
+        // 1.0.1: Phase 1 Bluetooth SCAN permission fix
         versionCode = 2
         versionName = "1.0.1"
     }
