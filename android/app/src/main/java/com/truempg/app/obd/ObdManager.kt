@@ -6,6 +6,8 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
@@ -21,8 +23,17 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 class ObdManager(context: Context) {
 
+    private val appContext = context.applicationContext
+
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+
+    /** True if BLUETOOTH_SCAN is held (always true below Android 12). */
+    private fun hasScanPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            appContext.checkSelfPermission(
+                android.Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED
 
     private var socket: BluetoothSocket? = null
     private var input: InputStream? = null
@@ -32,9 +43,13 @@ class ObdManager(context: Context) {
 
     /** Bonded devices that look like an OBD adapter (falls back to all). */
     fun pairedObdDevices(): List<BluetoothDevice> {
-        val bonded = adapter?.bondedDevices?.toList() ?: emptyList()
+        val bonded = try {
+            adapter?.bondedDevices?.toList() ?: emptyList()
+        } catch (e: SecurityException) {
+            emptyList()
+        }
         val obd = bonded.filter {
-            val n = (it.name ?: "").uppercase()
+            val n = try { (it.name ?: "").uppercase() } catch (e: SecurityException) { "" }
             n.contains("OBD") || n.contains("MX") || n.contains("LINK") ||
                 n.contains("ELM") || n.contains("VLINK") || n.contains("VIECAR")
         }
@@ -50,7 +65,12 @@ class ObdManager(context: Context) {
     suspend fun connect(device: BluetoothDevice): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             close()
-            adapter?.cancelDiscovery()
+            // cancelDiscovery() needs BLUETOOTH_SCAN on Android 12+. We connect
+            // to an already-paired device by address, so this is only an
+            // optimization -- skip it (or swallow) if the permission is absent.
+            if (hasScanPermission()) {
+                try { adapter?.cancelDiscovery() } catch (_: SecurityException) {}
+            }
             val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
             s.connect()
             socket = s
@@ -58,6 +78,12 @@ class ObdManager(context: Context) {
             output = s.outputStream
             initAdapter()
             Result.success(Unit)
+        } catch (e: SecurityException) {
+            close()
+            Result.failure(
+                SecurityException("Bluetooth permission not granted. " +
+                    "Enable it for TrueMPG in Settings, then reconnect.")
+            )
         } catch (e: Exception) {
             close()
             Result.failure(e)

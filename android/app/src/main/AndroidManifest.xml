@@ -2,8 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Bluetooth Classic (SPP) to the OBDLink MX+ -->
-    <!-- Android 12+ runtime permission -->
+    <!-- Android 12+ runtime permissions. SCAN is needed because
+         cancelDiscovery() requires it; neverForLocation since we do not
+         derive physical location from Bluetooth. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
     <!-- Legacy (<= Android 11) -->
     <uses-permission android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />

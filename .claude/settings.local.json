@@ -49,7 +49,11 @@
       "Bash(git init *)",
       "Bash(git config *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pip install --quiet pypdf)"
     ]
   }
 }

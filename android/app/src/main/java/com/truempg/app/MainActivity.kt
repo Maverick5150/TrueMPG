@@ -34,7 +34,8 @@ class MainActivity : ComponentActivity() {
             TrueMpgTheme {
                 val vm: MainViewModel = viewModel()
                 val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT)
+                    arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT,
+                        android.Manifest.permission.BLUETOOTH_SCAN)
                 else
                     arrayOf(android.Manifest.permission.BLUETOOTH,
                         android.Manifest.permission.BLUETOOTH_ADMIN)
