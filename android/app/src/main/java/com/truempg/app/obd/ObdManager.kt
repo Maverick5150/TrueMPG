@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
@@ -38,6 +40,10 @@ class ObdManager(context: Context) {
     private var socket: BluetoothSocket? = null
     private var input: InputStream? = null
     private var output: OutputStream? = null
+
+    // Serializes all command I/O so the poll loop and on-demand commands
+    // (DTC read/clear) never interleave bytes on the shared serial link.
+    private val ioMutex = Mutex()
 
     val isConnected: Boolean get() = socket?.isConnected == true
 
@@ -166,30 +172,42 @@ class ObdManager(context: Context) {
     /** Mode 01 PID 51 fuel-type code (1=gasoline, 4=diesel), or null. */
     suspend fun queryFuelType(): Int? = ObdMath.fuelType(queryPid(0x51) ?: emptyList())
 
-    /** Send one command, read until the '>' prompt (or timeout). */
+    /**
+     * Send one command, read until the '>' prompt (or timeout). Serialized via
+     * ioMutex and prefixed with an input-buffer flush so a previous response's
+     * leftover bytes can't corrupt this command's reply (this is what broke
+     * mode-03 DTC reads once polling ran concurrently).
+     */
     suspend fun send(cmd: String, settleMs: Long = 0, timeoutMs: Long = 2500): String =
         withContext(Dispatchers.IO) {
-            val out = output ?: return@withContext ""
-            val inp = input ?: return@withContext ""
-            out.write((cmd + "\r").toByteArray())
-            out.flush()
-            if (settleMs > 0) Thread.sleep(settleMs)
-            val sb = StringBuilder()
-            val deadline = System.currentTimeMillis() + timeoutMs
-            val buf = ByteArray(256)
-            while (System.currentTimeMillis() < deadline) {
-                val avail = inp.available()
-                if (avail > 0) {
-                    val n = inp.read(buf, 0, minOf(avail, buf.size))
-                    if (n > 0) {
-                        sb.append(String(buf, 0, n, Charsets.US_ASCII))
-                        if (sb.contains('>')) break
+            ioMutex.withLock {
+                val out = output ?: return@withLock ""
+                val inp = input ?: return@withLock ""
+                // discard any stale bytes still sitting in the buffer
+                try {
+                    val drain = ByteArray(256)
+                    while (inp.available() > 0) inp.read(drain)
+                } catch (_: Exception) {}
+                out.write((cmd + "\r").toByteArray())
+                out.flush()
+                if (settleMs > 0) Thread.sleep(settleMs)
+                val sb = StringBuilder()
+                val deadline = System.currentTimeMillis() + timeoutMs
+                val buf = ByteArray(256)
+                while (System.currentTimeMillis() < deadline) {
+                    val avail = inp.available()
+                    if (avail > 0) {
+                        val n = inp.read(buf, 0, minOf(avail, buf.size))
+                        if (n > 0) {
+                            sb.append(String(buf, 0, n, Charsets.US_ASCII))
+                            if (sb.contains('>')) break
+                        }
+                    } else {
+                        Thread.sleep(15)
                     }
-                } else {
-                    Thread.sleep(15)
                 }
+                sb.toString()
             }
-            sb.toString()
         }
 
     /** Query a mode-01 PID and return decoded data bytes (or null). */

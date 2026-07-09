@@ -61,6 +61,7 @@ object ObdRepository {
             ve = settings.ve,
             distanceUnit = settings.distanceUnit,
             economyUnit = settings.economyUnit,
+            tempUnit = settings.tempUnit,
             autoConnect = settings.autoConnect,
             savedAdapter = settings.savedAdapterAddress,
             tripActive = active != null,
@@ -90,6 +91,11 @@ object ObdRepository {
     fun setEconomyUnit(u: String) {
         settings.economyUnit = u
         state.update { it.copy(economyUnit = u) }
+    }
+
+    fun setTempUnit(u: String) {
+        settings.tempUnit = u
+        state.update { it.copy(tempUnit = u) }
     }
 
     fun setDisplacement(liters: Double) {

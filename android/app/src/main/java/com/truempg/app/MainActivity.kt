@@ -209,6 +209,12 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
             FilterChip(selected = state.economyUnit == "L_PER_100KM",
                 onClick = { vm.setEconomyUnit("L_PER_100KM") }, label = { Text("L/100km") })
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = state.tempUnit == "C",
+                onClick = { vm.setTempUnit("C") }, label = { Text("°C") })
+            FilterChip(selected = state.tempUnit == "F",
+                onClick = { vm.setTempUnit("F") }, label = { Text("°F") })
+        }
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
@@ -285,8 +291,8 @@ private fun DriveScreen(vm: MainViewModel, state: UiState) {
         if (sup(0x10)) r.mafGps?.let { Gauge("MAF", "%.1f g/s".format(it)) }
         if (sup(0x5E)) r.fuelRateLph?.let { Gauge("Fuel rate", "%.1f L/h".format(it)) }
         if (sup(0x0B)) Gauge("MAP", "%.0f kPa".format(r.mapKpa))
-        if (sup(0x0F)) Gauge("Intake air", "%.0f °C".format(r.iatC))
-        if (sup(0x05)) r.coolantC?.let { Gauge("Coolant", "%.0f °C".format(it)) }
+        if (sup(0x0F)) Gauge("Intake air", formatTemp(r.iatC, state.tempUnit))
+        if (sup(0x05)) r.coolantC?.let { Gauge("Coolant", formatTemp(it, state.tempUnit)) }
         if (sup(0x04)) r.loadPct?.let { Gauge("Engine load", "%.0f %%".format(it)) }
         if (sup(0x11)) r.throttlePct?.let { Gauge("Throttle", "%.0f %%".format(it)) }
         if (sup(0x2F)) r.fuelLevelPct?.let { Gauge("Fuel level", "%.0f %%".format(it)) }
@@ -314,6 +320,9 @@ private fun formatEconomy(mpgUs: Double, unit: String): String = when (unit) {
 
 private fun formatSpeed(mph: Double, unit: String): String =
     if (unit == "KMH") "%.0f km/h".format(ObdMath.mphToKph(mph)) else "%.0f mph".format(mph)
+
+private fun formatTemp(celsius: Double, unit: String): String =
+    if (unit == "F") "%.0f °F".format(celsius * 9.0 / 5.0 + 32.0) else "%.0f °C".format(celsius)
 
 private fun methodLabel(m: MpgMethod): String = when (m) {
     MpgMethod.FUEL_RATE -> "fuel-rate PID"

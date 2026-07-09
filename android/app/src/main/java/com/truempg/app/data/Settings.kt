@@ -34,6 +34,11 @@ class Settings(context: Context) {
         get() = p.getString("economyUnit", "MPG_US") ?: "MPG_US"
         set(v) { p.edit().putString("economyUnit", v).apply() }
 
+    /** "C" or "F" */
+    var tempUnit: String
+        get() = p.getString("tempUnit", "C") ?: "C"
+        set(v) { p.edit().putString("tempUnit", v).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

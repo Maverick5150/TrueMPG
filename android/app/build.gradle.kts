@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.4: fix ATSP0 regression - verify-before-accept protocol
-        // negotiation (CAN 6 first), repair empty cached profiles
-        versionCode = 5
-        versionName = "1.0.4"
+        // 1.0.5: fix DTC read (serialize serial I/O + flush) and add °C/°F
+        // temperature unit toggle wired to the live gauges
+        versionCode = 6
+        versionName = "1.0.5"
     }
 
     buildTypes {

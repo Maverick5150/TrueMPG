@@ -23,6 +23,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoConnect(enabled: Boolean) = ObdRepository.setAutoConnect(enabled)
     fun setDistanceUnit(u: String) = ObdRepository.setDistanceUnit(u)
     fun setEconomyUnit(u: String) = ObdRepository.setEconomyUnit(u)
+    fun setTempUnit(u: String) = ObdRepository.setTempUnit(u)
     fun setDisplacement(liters: Double) = ObdRepository.setDisplacement(liters)
     fun setMethodOverride(method: MpgMethod?) = ObdRepository.setMethodOverride(method)
 

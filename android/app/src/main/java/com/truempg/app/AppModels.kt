@@ -44,6 +44,7 @@ data class UiState(
     val ve: Double = 0.85,
     val distanceUnit: String = "MPH",
     val economyUnit: String = "MPG_US",
+    val tempUnit: String = "C",
     // automatic operation
     val autoConnect: Boolean = true,
     val savedAdapter: String? = null,
