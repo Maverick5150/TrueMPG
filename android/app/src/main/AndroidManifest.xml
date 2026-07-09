@@ -73,6 +73,20 @@
                 android:resource="@xml/mpg_widget_info" />
         </receiver>
 
+        <!-- Android Auto (Phase 9). Dev-mode only for sideloaded builds. -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+
+        <service
+            android:name=".car.TrueMpgCarService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.IOT" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

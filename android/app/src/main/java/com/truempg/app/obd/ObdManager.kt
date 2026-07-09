@@ -179,6 +179,25 @@ class ObdManager(context: Context) {
     /** Freeze-frame DTC — the code that captured the snapshot (mode 02 PID 02). */
     suspend fun readFreezeDtc(): String? = ObdMath.parseFreezeDtc(send("0202"))
 
+    /** Manufacturer mode-22 enhanced read: "22<pid>" -> data bytes after "62<pid>". */
+    suspend fun mode22(pidHex: String): List<Int>? {
+        val raw = send("22$pidHex")
+        val s = raw.uppercase().replace(">", "").replace("\r", "").replace("\n", "").replace(" ", "")
+        if (s.contains("NODATA") || s.contains("?") || s.contains("ERROR") || s.contains("UNABLE"))
+            return null
+        val marker = "62${pidHex.uppercase()}"
+        val idx = s.indexOf(marker)
+        if (idx < 0) return null
+        val hex = s.substring(idx + marker.length)
+        val bytes = ArrayList<Int>()
+        var i = 0
+        while (i + 2 <= hex.length) {
+            val b = hex.substring(i, i + 2).toIntOrNull(16) ?: break
+            bytes.add(b); i += 2
+        }
+        return if (bytes.isEmpty()) null else bytes
+    }
+
     /**
      * Send one command, read until the '>' prompt (or timeout). Serialized via
      * ioMutex and prefixed with an input-buffer flush so a previous response's

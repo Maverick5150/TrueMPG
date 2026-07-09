@@ -52,4 +52,5 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun markServiceDone(name: String) = ObdRepository.markServiceDone(name)
     fun addServiceItem(name: String, intervalMiles: Int) = ObdRepository.addServiceItem(name, intervalMiles)
     fun setOdometer(miles: Double) = ObdRepository.setOdometer(miles)
+    fun queryEnhanced(pidHex: String) = ObdRepository.queryEnhanced(pidHex)
 }

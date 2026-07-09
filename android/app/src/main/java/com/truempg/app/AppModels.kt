@@ -103,4 +103,6 @@ data class UiState(
     val maintenance: List<ServiceItem> = emptyList(),
     val knownVehicles: List<String> = emptyList(),
     val keepScreenOn: Boolean = true,
+    // Phase 9: experimental manufacturer (mode 22) read result
+    val enhancedResult: String = "",
 )

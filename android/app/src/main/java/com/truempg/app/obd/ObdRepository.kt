@@ -467,6 +467,31 @@ object ObdRepository {
         state.update { it.copy(odometer = maintStore.odometer(id), maintenance = maintStore.items(id)) }
     }
 
+    /** Phase 9: experimental manufacturer mode-22 read. Decoding is unverified. */
+    fun queryEnhanced(pidHex: String) {
+        val clean = pidHex.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }
+        if (clean.length < 2) {
+            state.update { it.copy(enhancedResult = "Enter a hex PID, e.g. 1E1C") }; return
+        }
+        scope.launch {
+            state.update { it.copy(enhancedResult = "Querying 22 $clean …") }
+            val bytes = try { obd.mode22(clean) } catch (e: Exception) { null }
+            val text = if (bytes == null) {
+                "22 $clean → no data (unsupported PID, wrong module, or gateway-blocked)"
+            } else {
+                val hex = bytes.joinToString(" ") { "%02X".format(it) }
+                val sb = StringBuilder("22 $clean → raw: $hex")
+                if (bytes.size >= 2) {
+                    val u16 = bytes[0] * 256 + bytes[1]
+                    sb.append("  | uint16: $u16  | /10: ${"%.1f".format(u16 / 10.0)}")
+                    sb.append("  | temp(A-40): ${bytes[0] - 40}")
+                }
+                sb.toString()
+            }
+            state.update { it.copy(enhancedResult = text) }
+        }
+    }
+
     // ---- polling ----
     private fun startPolling() {
         pollJob?.cancel()

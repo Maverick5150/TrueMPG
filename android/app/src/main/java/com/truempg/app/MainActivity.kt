@@ -829,6 +829,32 @@ private fun CodesScreen(vm: MainViewModel, state: UiState) {
         if (!state.connected) Text("Connect first.", color = MaterialTheme.colorScheme.error)
         Text("Clearing turns the light off but does not fix the fault — real codes return.",
             fontSize = 12.sp)
+
+        HorizontalDivider()
+        Text("Experimental: Ford enhanced PIDs (mode 22)", fontWeight = FontWeight.SemiBold)
+        var enhPid by remember { mutableStateOf("") }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = enhPid, onValueChange = { enhPid = it },
+                label = { Text("PID (hex, e.g. 1E1C)") }, singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Button(onClick = { vm.queryEnhanced(enhPid) }, enabled = state.connected) { Text("Read") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1E1C" to "Trans temp?", "1154" to "Oil temp?", "1638" to "Oil life?")
+                .forEach { (pid, label) ->
+                    AssistChip(onClick = { vm.queryEnhanced(pid) }, label = { Text(label) })
+                }
+        }
+        if (state.enhancedResult.isNotEmpty()) Text(state.enhancedResult, fontSize = 12.sp)
+        Text("EXPERIMENTAL and UNVERIFIED: Ford mode-22 PIDs aren't publicly standardized. " +
+            "Values may be wrong or blank — many live on MS-CAN (gateway-blocked on your truck). " +
+            "Raw bytes are shown so you can decode against FORScan references. Preset PIDs are guesses.",
+            fontSize = 11.sp)
     }
 }
 

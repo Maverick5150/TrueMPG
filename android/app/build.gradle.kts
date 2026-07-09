@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.2.0: Phase 8 - maintenance tracker, home-screen widget, keep-screen-on,
-        // per-vehicle trips (multi-vehicle), bigger Drive numbers
-        versionCode = 12
-        versionName = "1.2.0"
+        // 1.3.0: Phase 9 - Android Auto car app (dev-mode) + experimental
+        // Ford mode-22 enhanced-PID reader
+        versionCode = 13
+        versionName = "1.3.0"
     }
 
     buildTypes {
@@ -45,6 +45,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.car.app:app:1.4.0")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
