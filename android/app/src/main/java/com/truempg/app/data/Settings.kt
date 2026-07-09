@@ -39,6 +39,21 @@ class Settings(context: Context) {
         get() = p.getString("tempUnit", "C") ?: "C"
         set(v) { p.edit().putString("tempUnit", v).apply() }
 
+    // ---- alert thresholds ----
+    var alertsEnabled: Boolean
+        get() = p.getBoolean("alertsEnabled", true)
+        set(v) { p.edit().putBoolean("alertsEnabled", v).apply() }
+
+    /** Coolant alert threshold in °F. */
+    var coolantMaxF: Double
+        get() = Double.fromBits(p.getLong("coolantMaxF", (230.0).toRawBits()))
+        set(v) { p.edit().putLong("coolantMaxF", v.toRawBits()).apply() }
+
+    /** Low-fuel alert threshold in %. */
+    var lowFuelPct: Double
+        get() = Double.fromBits(p.getLong("lowFuelPct", (10.0).toRawBits()))
+        set(v) { p.edit().putLong("lowFuelPct", v.toRawBits()).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

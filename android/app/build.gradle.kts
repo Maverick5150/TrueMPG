@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.5: fix DTC read (serialize serial I/O + flush) and add °C/°F
-        // temperature unit toggle wired to the live gauges
-        versionCode = 6
-        versionName = "1.0.5"
+        // 1.0.6: Phase 4 - live "everything" view, driver alerts, offline DTC
+        // descriptions, I/M readiness + freeze-frame DTC
+        versionCode = 7
+        versionName = "1.0.6"
     }
 
     buildTypes {

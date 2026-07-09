@@ -10,6 +10,7 @@ import com.truempg.app.data.TripStore
 import com.truempg.app.data.VehicleProfile
 import com.truempg.app.data.VehicleStore
 import com.truempg.app.obd.ObdMath.MpgMethod
+import com.truempg.app.service.Alerts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +45,15 @@ object ObdRepository {
     @Volatile private var wantConnected = false
     private var lastPersistMs = 0L
 
+    // Phase 4: alerts + live-everything scan
+    private val firedAlerts = HashSet<String>()          // once per condition per trip
+    private var knownDtcs: Set<String> = emptySet()
+    private var lastDtcCheckMs = 0L
+    private var scanCursor = 0
+    private var lastScanMs = 0L
+    private val liveMap = HashMap<Int, Double>()
+    private val corePids = setOf(0x0C, 0x0D, 0x0B, 0x0F, 0x44, 0x05, 0x11, 0x04, 0x2F, 0x42, 0x10, 0x5E)
+
     val state = MutableStateFlow(UiState())
 
     @Synchronized
@@ -62,6 +72,9 @@ object ObdRepository {
             distanceUnit = settings.distanceUnit,
             economyUnit = settings.economyUnit,
             tempUnit = settings.tempUnit,
+            alertsEnabled = settings.alertsEnabled,
+            coolantMaxF = settings.coolantMaxF,
+            lowFuelPct = settings.lowFuelPct,
             autoConnect = settings.autoConnect,
             savedAdapter = settings.savedAdapterAddress,
             tripActive = active != null,
@@ -96,6 +109,45 @@ object ObdRepository {
     fun setTempUnit(u: String) {
         settings.tempUnit = u
         state.update { it.copy(tempUnit = u) }
+    }
+
+    fun setAlertsEnabled(enabled: Boolean) {
+        settings.alertsEnabled = enabled
+        state.update { it.copy(alertsEnabled = enabled) }
+    }
+
+    fun setCoolantMaxF(f: Double) {
+        val v = f.coerceIn(180.0, 280.0)
+        settings.coolantMaxF = v
+        state.update { it.copy(coolantMaxF = v) }
+    }
+
+    fun setLowFuelPct(pct: Double) {
+        val v = pct.coerceIn(1.0, 50.0)
+        settings.lowFuelPct = v
+        state.update { it.copy(lowFuelPct = v) }
+    }
+
+    /** Re-read readiness monitors, freeze-frame DTC, and stored codes on demand. */
+    fun readDiagnostics() {
+        scope.launch { refreshDiagnostics(alertOnNew = false) }
+    }
+
+    private suspend fun refreshDiagnostics(alertOnNew: Boolean) {
+        val ready = try { obd.readReadiness() } catch (e: Exception) { null }
+        val freeze = try { obd.readFreezeDtc() } catch (e: Exception) { null }
+        val codes = try { obd.readDtcs() } catch (e: Exception) { emptyList() }
+        val set = codes.toSet()
+        val newOnes = if (alertOnNew) set - knownDtcs else emptySet()
+        knownDtcs = set
+        state.update {
+            it.copy(readiness = ready, freezeDtc = freeze, dtcs = codes,
+                dtcMessage = if (codes.isEmpty()) "No stored codes" else "${codes.size} code(s)")
+        }
+        if (alertOnNew && settings.alertsEnabled) {
+            for (c in newOnes) Alerts.post(app, ("dtc$c").hashCode(),
+                "New trouble code: $c", DtcDescriptions.describe(c) ?: "New DTC detected.")
+        }
     }
 
     fun setDisplacement(liters: Double) {
@@ -212,6 +264,8 @@ object ObdRepository {
                 mpgMethod = method, methodOverride = profile.methodOverride,
             )
         }
+        firedAlerts.clear()
+        refreshDiagnostics(alertOnNew = false)   // seed readiness/freeze/DTCs (no alert)
     }
 
     fun disconnect() {
@@ -235,6 +289,9 @@ object ObdRepository {
                 val dtHours = (now - lastNs) / 1e9 / 3600.0
                 lastNs = now
                 applyReading(reading, dtHours)
+                updateLivePids(reading)
+                checkAlerts(reading)
+                maybeCheckDtcs()
                 delay(600)
             }
         }
@@ -286,6 +343,7 @@ object ObdRepository {
         if (!active && r.mph > 0.5) {
             active = true
             tripStartMs = System.currentTimeMillis()
+            firedAlerts.clear()                  // new trip -> alerts fire again
         }
         val addMiles = if (active) r.mph * dtHours else 0.0
         val addGals = if (active) gph * dtHours else 0.0
@@ -311,6 +369,73 @@ object ObdRepository {
             lastPersistMs = now
             settings.saveActiveTrip(tripStartMs, s.tripMiles, s.tripGallons)
         }
+    }
+
+    // ---- Phase 4: live-everything scan, alerts, periodic DTC poll ----
+    private suspend fun updateLivePids(r: Raw) {
+        // Fold this cycle's core reads in directly.
+        liveMap[0x0C] = r.rpm
+        liveMap[0x0D] = r.mph * ObdMath.KPH_PER_MPH
+        liveMap[0x0B] = r.mapk
+        liveMap[0x0F] = r.iat
+        liveMap[0x44] = r.lam
+        r.coolant?.let { liveMap[0x05] = it }
+        r.throttle?.let { liveMap[0x11] = it }
+        r.load?.let { liveMap[0x04] = it }
+        r.fuel?.let { liveMap[0x2F] = it }
+        r.volts?.let { liveMap[0x42] = it }
+        r.maf?.let { liveMap[0x10] = it }
+        r.fuelRate?.let { liveMap[0x5E] = it }
+        // Rotate through the OTHER supported PIDs, but throttled so the core
+        // gauges/MPG stay responsive (extra reads share the serial link).
+        val now = System.currentTimeMillis()
+        if (now - lastScanMs > 1500) {
+            lastScanMs = now
+            val extras = (currentProfile?.supportedPids ?: emptySet())
+                .filter { it in PidRegistry.byPid && it !in corePids }.sorted()
+            if (extras.isNotEmpty()) {
+                repeat(minOf(5, extras.size)) {
+                    val pid = extras[scanCursor % extras.size]
+                    scanCursor++
+                    val spec = PidRegistry.byPid[pid]
+                    if (spec != null) {
+                        val d = spec.decode(obd.queryPid(pid) ?: emptyList())
+                        if (d != null) liveMap[pid] = d
+                    }
+                }
+            }
+        }
+        state.update { it.copy(livePids = liveMap.toMap()) }
+    }
+
+    private fun checkAlerts(r: Raw) {
+        if (!settings.alertsEnabled) return
+        fun fire(key: String, title: String, text: String) {
+            if (firedAlerts.add(key)) Alerts.post(app, key.hashCode(), title, text)
+        }
+        r.coolant?.let { c ->
+            val f = c * 9.0 / 5.0 + 32.0
+            if (f > settings.coolantMaxF)
+                fire("coolant", "High coolant temperature",
+                    "Coolant ${"%.0f".format(f)}°F is over ${settings.coolantMaxF.toInt()}°F.")
+        }
+        r.volts?.let { v ->
+            val running = r.rpm > 300
+            val thr = if (running) 13.2 else 12.0
+            if (v < thr) fire("volt", "Low system voltage",
+                "${"%.1f".format(v)} V (${if (running) "running" else "engine off"}) is below $thr V.")
+        }
+        r.fuel?.let { fl ->
+            if (fl < settings.lowFuelPct)
+                fire("fuel", "Low fuel", "Fuel level is ${"%.0f".format(fl)}%.")
+        }
+    }
+
+    private suspend fun maybeCheckDtcs() {
+        val now = System.currentTimeMillis()
+        if (now - lastDtcCheckMs < 60_000) return
+        lastDtcCheckMs = now
+        refreshDiagnostics(alertOnNew = true)
     }
 
     // ---- disconnect / auto-reconnect ----
@@ -347,6 +472,7 @@ object ObdRepository {
     // ---- trip lifecycle ----
     fun startTrip() {
         tripStartMs = System.currentTimeMillis()
+        firedAlerts.clear()
         settings.saveActiveTrip(tripStartMs, 0.0, 0.0)
         state.update { it.copy(tripActive = true, tripMiles = 0.0, tripGallons = 0.0, tripElapsedSec = 0) }
     }
@@ -381,11 +507,7 @@ object ObdRepository {
     fun readDtcs() {
         scope.launch {
             state.update { it.copy(dtcMessage = "Reading…") }
-            val codes = try { obd.readDtcs() } catch (e: Exception) { emptyList() }
-            state.update {
-                it.copy(dtcs = codes,
-                    dtcMessage = if (codes.isEmpty()) "No stored codes" else "${codes.size} code(s)")
-            }
+            refreshDiagnostics(alertOnNew = false)  // codes + readiness + freeze frame
         }
     }
 
@@ -393,9 +515,14 @@ object ObdRepository {
         scope.launch {
             state.update { it.copy(dtcMessage = "Clearing…") }
             val ok = try { obd.clearDtcs() } catch (e: Exception) { false }
-            state.update {
-                it.copy(dtcs = if (ok) emptyList() else it.dtcs,
-                    dtcMessage = if (ok) "Cleared. (Real faults will return.)" else "Clear failed")
+            if (ok) {
+                knownDtcs = emptySet()
+                state.update {
+                    it.copy(dtcs = emptyList(), freezeDtc = null,
+                        dtcMessage = "Cleared. (Real faults will return.)")
+                }
+            } else {
+                state.update { it.copy(dtcMessage = "Clear failed") }
             }
         }
     }

@@ -202,6 +202,41 @@ object ObdMath {
         return "%s%d%X%X%X".format(letter, d1, d2, d3, d4)
     }
 
+    // ---- I/M readiness (mode 01 PID 01) ----
+    data class Monitor(val name: String, val complete: Boolean)
+    data class Readiness(val milOn: Boolean, val dtcCount: Int, val monitors: List<Monitor>)
+
+    fun decodeReadiness(b: List<Int>): Readiness? {
+        if (b.size < 4) return null
+        val a = b[0]; val bb = b[1]; val c = b[2]; val d = b[3]
+        val mil = (a and 0x80) != 0
+        val count = a and 0x7F
+        val mons = ArrayList<Monitor>()
+        // Continuous: low nibble of B = supported, high nibble = incomplete (1=not ready)
+        if ((bb and 0x01) != 0) mons.add(Monitor("Misfire", (bb and 0x10) == 0))
+        if ((bb and 0x02) != 0) mons.add(Monitor("Fuel system", (bb and 0x20) == 0))
+        if ((bb and 0x04) != 0) mons.add(Monitor("Components", (bb and 0x40) == 0))
+        // Non-continuous (spark ignition): C = supported, D = incomplete
+        val names = listOf("Catalyst", "Heated catalyst", "Evap system", "Secondary air",
+            "A/C refrigerant", "O2 sensor", "O2 heater", "EGR system")
+        for (i in 0..7) if ((c shr i) and 1 == 1) mons.add(Monitor(names[i], ((d shr i) and 1) == 0))
+        return Readiness(mil, count, mons)
+    }
+
+    // ---- Freeze frame (mode 02 PID 02): the DTC that snapshotted ----
+    fun parseFreezeDtc(raw: String): String? {
+        val s = raw.uppercase()
+            .replace(">", "").replace("\r", "").replace("\n", "").replace(" ", "")
+        val idx = s.indexOf("4202")
+        if (idx < 0) return null
+        var rest = s.substring(idx + 4)
+        if (rest.startsWith("00") && rest.length >= 6) rest = rest.substring(2) // frame byte
+        val group = rest.take(4)
+        if (group.length < 4 || group == "0000") return null
+        val v = group.toIntOrNull(16) ?: return null
+        return decodeOne(v)
+    }
+
     // ---- MPG method selection ----
     enum class MpgMethod { FUEL_RATE, MAF, SPEED_DENSITY, NONE }
 

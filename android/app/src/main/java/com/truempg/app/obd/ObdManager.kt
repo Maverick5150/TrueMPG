@@ -172,6 +172,13 @@ class ObdManager(context: Context) {
     /** Mode 01 PID 51 fuel-type code (1=gasoline, 4=diesel), or null. */
     suspend fun queryFuelType(): Int? = ObdMath.fuelType(queryPid(0x51) ?: emptyList())
 
+    /** I/M readiness monitors (mode 01 PID 01). */
+    suspend fun readReadiness(): ObdMath.Readiness? =
+        ObdMath.decodeReadiness(queryPid(0x01) ?: emptyList())
+
+    /** Freeze-frame DTC — the code that captured the snapshot (mode 02 PID 02). */
+    suspend fun readFreezeDtc(): String? = ObdMath.parseFreezeDtc(send("0202"))
+
     /**
      * Send one command, read until the '>' prompt (or timeout). Serialized via
      * ioMutex and prefixed with an input-buffer flush so a previous response's

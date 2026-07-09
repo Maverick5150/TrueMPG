@@ -25,8 +25,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.truempg.app.data.Trip
+import com.truempg.app.obd.DtcDescriptions
 import com.truempg.app.obd.ObdMath
 import com.truempg.app.obd.ObdMath.MpgMethod
+import com.truempg.app.obd.PidRegistry
+import com.truempg.app.obd.PidSpec
 import com.truempg.app.ui.TrueMpgTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,6 +77,7 @@ private fun AppRoot(vm: MainViewModel) {
                 val items = listOf(
                     "Connect" to Icons.Filled.Bluetooth,
                     "Drive" to Icons.Filled.Speed,
+                    "Live" to Icons.Filled.Sensors,
                     "Trips" to Icons.Filled.List,
                     "Codes" to Icons.Filled.Warning,
                 )
@@ -92,7 +96,8 @@ private fun AppRoot(vm: MainViewModel) {
             when (tab) {
                 0 -> ConnectScreen(vm, state)
                 1 -> DriveScreen(vm, state)
-                2 -> TripsScreen(vm, state)
+                2 -> LiveScreen(vm, state)
+                3 -> TripsScreen(vm, state)
                 else -> CodesScreen(vm, state)
             }
         }
@@ -215,6 +220,42 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
             FilterChip(selected = state.tempUnit == "F",
                 onClick = { vm.setTempUnit("F") }, label = { Text("°F") })
         }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        Text("Alerts", fontWeight = FontWeight.SemiBold)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Enable driver alerts")
+            Switch(checked = state.alertsEnabled, onCheckedChange = { vm.setAlertsEnabled(it) })
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("High coolant: ${state.coolantMaxF.toInt()} °F")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.setCoolantMaxF(state.coolantMaxF - 5) }) { Text("−") }
+                OutlinedButton(onClick = { vm.setCoolantMaxF(state.coolantMaxF + 5) }) { Text("+") }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Low fuel: ${state.lowFuelPct.toInt()} %")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.setLowFuelPct(state.lowFuelPct - 1) }) { Text("−") }
+                OutlinedButton(onClick = { vm.setLowFuelPct(state.lowFuelPct + 1) }) { Text("+") }
+            }
+        }
+        Text("Also alerts on new trouble codes and low battery voltage (<13.2V running).",
+            fontSize = 12.sp)
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
@@ -367,8 +408,8 @@ private fun TripRow(t: Trip, dateLabel: String) {
 @Composable
 private fun CodesScreen(vm: MainViewModel, state: UiState) {
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text("Trouble codes", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -378,11 +419,66 @@ private fun CodesScreen(vm: MainViewModel, state: UiState) {
         if (state.dtcMessage.isNotEmpty()) Text(state.dtcMessage)
         state.dtcs.forEach { code ->
             ElevatedCard(Modifier.fillMaxWidth()) {
-                Text(code, Modifier.padding(14.dp), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Column(Modifier.padding(14.dp)) {
+                    Text(code, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    DtcDescriptions.describe(code)?.let { Text(it, fontSize = 13.sp) }
+                }
+            }
+        }
+        state.freezeDtc?.let {
+            HorizontalDivider()
+            Text("Freeze frame", fontWeight = FontWeight.SemiBold)
+            Text("Snapshot captured for ${DtcDescriptions.label(it)}", fontSize = 13.sp)
+        }
+        state.readiness?.let { rd ->
+            HorizontalDivider()
+            Text("Emissions readiness", fontWeight = FontWeight.SemiBold)
+            Text("MIL lamp: ${if (rd.milOn) "ON" else "off"} · ${rd.dtcCount} stored code(s)",
+                fontSize = 12.sp)
+            rd.monitors.forEach { m ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(m.name)
+                    Text(if (m.complete) "Ready" else "Not ready",
+                        fontWeight = FontWeight.Bold,
+                        color = if (m.complete) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.error)
+                }
             }
         }
         if (!state.connected) Text("Connect first.", color = MaterialTheme.colorScheme.error)
-        Text("Note: clearing turns the light off but does not fix the underlying " +
-            "fault — real codes (like a catalyst code) will come back.", fontSize = 12.sp)
+        Text("Clearing turns the light off but does not fix the fault — real codes return.",
+            fontSize = 12.sp)
     }
+}
+
+@Composable
+private fun LiveScreen(vm: MainViewModel, state: UiState) {
+    val supported = state.supportedPids.filter { it in PidRegistry.byPid }.sorted()
+    LazyColumn(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Text("Live data", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            if (!state.connected)
+                Text("Connect on the Connect tab first.", color = MaterialTheme.colorScheme.error)
+            else
+                Text("${supported.size} supported PIDs", fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.secondary)
+        }
+        items(supported) { pid ->
+            val spec = PidRegistry.byPid[pid]
+            if (spec != null) {
+                val v = state.livePids[pid]
+                Gauge(spec.name, if (v == null) "…" else formatPidValue(spec, v, state))
+            }
+        }
+    }
+}
+
+private fun formatPidValue(spec: PidSpec, value: Double, state: UiState): String = when {
+    spec.pid in PidRegistry.tempPids -> formatTemp(value, state.tempUnit)
+    spec.pid == 0x0D -> formatSpeed(value / ObdMath.KPH_PER_MPH, state.distanceUnit)
+    spec.unit.isEmpty() -> "%.3f".format(value)
+    else -> "%.1f %s".format(value, spec.unit)
 }

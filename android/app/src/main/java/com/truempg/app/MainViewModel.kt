@@ -30,9 +30,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun connect(address: String) = ObdService.connect(getApplication<Application>(), address)
     fun disconnect() = ObdService.stop(getApplication<Application>())
 
+    fun setAlertsEnabled(enabled: Boolean) = ObdRepository.setAlertsEnabled(enabled)
+    fun setCoolantMaxF(f: Double) = ObdRepository.setCoolantMaxF(f)
+    fun setLowFuelPct(pct: Double) = ObdRepository.setLowFuelPct(pct)
+
     fun startTrip() = ObdRepository.startTrip()
     fun stopTrip() = ObdRepository.stopTrip()
     fun clearTripHistory() = ObdRepository.clearTripHistory()
     fun readDtcs() = ObdRepository.readDtcs()
     fun clearDtcs() = ObdRepository.clearDtcs()
+    fun readDiagnostics() = ObdRepository.readDiagnostics()
 }

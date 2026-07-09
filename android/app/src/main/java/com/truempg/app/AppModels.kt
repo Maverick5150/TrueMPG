@@ -2,6 +2,7 @@ package com.truempg.app
 
 import com.truempg.app.data.Trip
 import com.truempg.app.obd.ObdMath.MpgMethod
+import com.truempg.app.obd.ObdMath.Readiness
 
 /** A paired Bluetooth adapter shown in the Connect list. */
 data class DeviceInfo(val name: String, val address: String)
@@ -54,7 +55,15 @@ data class UiState(
     val tripGallons: Double = 0.0,
     val tripElapsedSec: Long = 0L,
     val trips: List<Trip> = emptyList(),
-    // codes
+    // codes / diagnostics
     val dtcs: List<String> = emptyList(),
     val dtcMessage: String = "",
+    val readiness: Readiness? = null,
+    val freezeDtc: String? = null,
+    // live "everything" view: pid -> latest decoded value
+    val livePids: Map<Int, Double> = emptyMap(),
+    // alerts
+    val alertsEnabled: Boolean = true,
+    val coolantMaxF: Double = 230.0,
+    val lowFuelPct: Double = 10.0,
 )
