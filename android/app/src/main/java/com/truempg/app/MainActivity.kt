@@ -25,6 +25,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.truempg.app.data.Trip
+import com.truempg.app.obd.ObdMath
+import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.ui.TrueMpgTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -169,38 +171,100 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
-        Text("Fuel model calibration", fontWeight = FontWeight.SemiBold)
-        Text("Volumetric efficiency (VE): ${"%.2f".format(state.ve)}")
-        Slider(
-            value = state.ve.toFloat(),
-            onValueChange = { vm.setVe(it.toDouble()) },
-            valueRange = 0.5f..1.1f,
-        )
-        Text(
-            "2.7L EcoBoost has no MAF sensor, so MPG is estimated by speed-density. " +
-                "After a full tank, set VE = 0.85 × (logged gal ÷ pump gal).",
-            fontSize = 12.sp
-        )
+        Text("Vehicle", fontWeight = FontWeight.SemiBold)
+        if (state.connected) {
+            Text("${state.vehicleLabel}${state.vin?.let { " · VIN $it" } ?: ""}", fontSize = 12.sp)
+            Text("Protocol ${state.protocol ?: "?"} · ${state.supportedPids.size} PIDs supported",
+                fontSize = 12.sp)
+        } else {
+            Text("Connect to auto-detect the protocol, read the VIN, and discover PIDs.",
+                fontSize = 12.sp)
+        }
+        Text("MPG method: ${methodLabel(state.mpgMethod)}", fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = state.methodOverride == null,
+                onClick = { vm.setMethodOverride(null) }, label = { Text("Auto") })
+            FilterChip(selected = state.methodOverride == MpgMethod.FUEL_RATE,
+                onClick = { vm.setMethodOverride(MpgMethod.FUEL_RATE) }, label = { Text("Fuel-rate") })
+            FilterChip(selected = state.methodOverride == MpgMethod.MAF,
+                onClick = { vm.setMethodOverride(MpgMethod.MAF) }, label = { Text("MAF") })
+            FilterChip(selected = state.methodOverride == MpgMethod.SPEED_DENSITY,
+                onClick = { vm.setMethodOverride(MpgMethod.SPEED_DENSITY) }, label = { Text("Speed-density") })
+        }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        Text("Units", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = state.distanceUnit == "MPH",
+                onClick = { vm.setDistanceUnit("MPH") }, label = { Text("mph") })
+            FilterChip(selected = state.distanceUnit == "KMH",
+                onClick = { vm.setDistanceUnit("KMH") }, label = { Text("km/h") })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = state.economyUnit == "MPG_US",
+                onClick = { vm.setEconomyUnit("MPG_US") }, label = { Text("MPG US") })
+            FilterChip(selected = state.economyUnit == "MPG_IMP",
+                onClick = { vm.setEconomyUnit("MPG_IMP") }, label = { Text("MPG imp") })
+            FilterChip(selected = state.economyUnit == "L_PER_100KM",
+                onClick = { vm.setEconomyUnit("L_PER_100KM") }, label = { Text("L/100km") })
+        }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        if (state.mpgMethod == MpgMethod.SPEED_DENSITY) {
+            Text("Fuel model calibration (speed-density)", fontWeight = FontWeight.SemiBold)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Displacement: ${"%.1f".format(state.displacementL)} L")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { vm.setDisplacement(state.displacementL - 0.1) }) { Text("−") }
+                    OutlinedButton(onClick = { vm.setDisplacement(state.displacementL + 0.1) }) { Text("+") }
+                }
+            }
+            Text("Volumetric efficiency (VE): ${"%.2f".format(state.ve)}")
+            Slider(
+                value = state.ve.toFloat(),
+                onValueChange = { vm.setVe(it.toDouble()) },
+                valueRange = 0.5f..1.1f,
+            )
+            Text(
+                "No-MAF engines estimate fuel by speed-density. Set displacement, then " +
+                    "after a full tank set VE = 0.85 × (logged gal ÷ pump gal).",
+                fontSize = 12.sp
+            )
+        } else {
+            Text("Fuel model: ${methodLabel(state.mpgMethod)} — no calibration needed.",
+                fontSize = 12.sp)
+        }
     }
 }
 
 @Composable
 private fun DriveScreen(vm: MainViewModel, state: UiState) {
     val r = state.readings
+    val sup: (Int) -> Boolean = { state.supportedPids.isEmpty() || it in state.supportedPids }
+    val avgMpgUs = if (state.tripGallons > 1e-6) state.tripMiles / state.tripGallons else 0.0
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Trip average", color = MaterialTheme.colorScheme.secondary)
-        Text(
-            "${"%.1f".format(if (state.tripGallons > 1e-6) state.tripMiles / state.tripGallons else 0.0)} MPG",
-            fontSize = 48.sp, fontWeight = FontWeight.Bold
-        )
-        Text("Instant: ${"%.1f".format(r.instMpg)} MPG", fontSize = 18.sp)
-        Text(
-            "trip ${"%.2f".format(state.tripMiles)} mi · " +
-                "${"%.3f".format(state.tripGallons)} gal · ${state.tripElapsedSec}s"
-        )
+        Text(formatEconomy(avgMpgUs, state.economyUnit), fontSize = 44.sp, fontWeight = FontWeight.Bold)
+        Text("Instant: ${formatEconomy(r.instMpg, state.economyUnit)}", fontSize = 18.sp)
+        Text("${methodLabel(state.mpgMethod)} · ${state.vehicleLabel}",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+
+        val dist = if (state.distanceUnit == "KMH")
+            "%.2f km".format(state.tripMiles * ObdMath.KPH_PER_MPH)
+        else "%.2f mi".format(state.tripMiles)
+        val fuel = if (state.economyUnit == "L_PER_100KM")
+            "%.2f L".format(state.tripGallons * ObdMath.L_PER_GAL)
+        else "%.3f gal".format(state.tripGallons)
+        Text("trip $dist · $fuel · ${state.tripElapsedSec}s")
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!state.tripActive) {
@@ -212,16 +276,22 @@ private fun DriveScreen(vm: MainViewModel, state: UiState) {
 
         HorizontalDivider()
         Text("Live data", fontWeight = FontWeight.SemiBold)
-        Gauge("Speed", "%.0f mph".format(r.mph))
-        Gauge("RPM", "%.0f".format(r.rpm))
-        Gauge("MAP", "%.0f kPa".format(r.mapKpa))
-        Gauge("Intake air", "%.0f °C".format(r.iatC))
-        r.coolantC?.let { Gauge("Coolant", "%.0f °C".format(it)) }
-        r.loadPct?.let { Gauge("Engine load", "%.0f %%".format(it)) }
-        r.throttlePct?.let { Gauge("Throttle", "%.0f %%".format(it)) }
-        r.fuelLevelPct?.let { Gauge("Fuel level", "%.0f %%".format(it)) }
-        r.volts?.let { Gauge("Battery", "%.1f V".format(it)) }
-        Gauge("Lambda", "%.3f".format(r.lambda))
+        if (state.mpgMethod == MpgMethod.NONE && state.connected) {
+            Text("No MPG source on this vehicle (no fuel-rate, MAF, or MAP PID).",
+                color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
+        if (sup(0x0D)) Gauge("Speed", formatSpeed(r.mph, state.distanceUnit))
+        if (sup(0x0C)) Gauge("RPM", "%.0f".format(r.rpm))
+        if (sup(0x10)) r.mafGps?.let { Gauge("MAF", "%.1f g/s".format(it)) }
+        if (sup(0x5E)) r.fuelRateLph?.let { Gauge("Fuel rate", "%.1f L/h".format(it)) }
+        if (sup(0x0B)) Gauge("MAP", "%.0f kPa".format(r.mapKpa))
+        if (sup(0x0F)) Gauge("Intake air", "%.0f °C".format(r.iatC))
+        if (sup(0x05)) r.coolantC?.let { Gauge("Coolant", "%.0f °C".format(it)) }
+        if (sup(0x04)) r.loadPct?.let { Gauge("Engine load", "%.0f %%".format(it)) }
+        if (sup(0x11)) r.throttlePct?.let { Gauge("Throttle", "%.0f %%".format(it)) }
+        if (sup(0x2F)) r.fuelLevelPct?.let { Gauge("Fuel level", "%.0f %%".format(it)) }
+        if (sup(0x42)) r.volts?.let { Gauge("Battery", "%.1f V".format(it)) }
+        if (sup(0x44)) Gauge("Lambda", "%.3f".format(r.lambda))
 
         if (!state.connected) Text("Connect on the Connect tab first.",
             color = MaterialTheme.colorScheme.error)
@@ -234,6 +304,22 @@ private fun Gauge(label: String, value: String) {
         Text(label)
         Text(value, fontWeight = FontWeight.Bold)
     }
+}
+
+private fun formatEconomy(mpgUs: Double, unit: String): String = when (unit) {
+    "MPG_IMP" -> "%.1f MPG".format(ObdMath.mpgUsToImperial(mpgUs))
+    "L_PER_100KM" -> "%.1f L/100km".format(ObdMath.mpgUsToLper100km(mpgUs))
+    else -> "%.1f MPG".format(mpgUs)
+}
+
+private fun formatSpeed(mph: Double, unit: String): String =
+    if (unit == "KMH") "%.0f km/h".format(ObdMath.mphToKph(mph)) else "%.0f mph".format(mph)
+
+private fun methodLabel(m: MpgMethod): String = when (m) {
+    MpgMethod.FUEL_RATE -> "fuel-rate PID"
+    MpgMethod.MAF -> "MAF"
+    MpgMethod.SPEED_DENSITY -> "speed-density"
+    MpgMethod.NONE -> "no MPG source"
 }
 
 @Composable

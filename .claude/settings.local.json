@@ -55,7 +55,8 @@
       "Bash(python -c ' *)",
       "Bash(python -m pip install --quiet pypdf)",
       "Bash(git fetch *)",
-      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\")"
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\")",
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" e3b4012)"
     ]
   }
 }

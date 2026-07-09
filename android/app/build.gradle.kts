@@ -12,9 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.2: Phase 2 auto-connect + foreground monitoring service
-        versionCode = 3
-        versionName = "1.0.2"
+        // 1.0.3: Phase 3 universal vehicle support (protocol auto-detect,
+        // capability discovery, universal MPG engine, units, graceful degrade)
+        versionCode = 4
+        versionName = "1.0.3"
     }
 
     buildTypes {

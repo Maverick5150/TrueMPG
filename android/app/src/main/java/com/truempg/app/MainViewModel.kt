@@ -2,6 +2,7 @@ package com.truempg.app
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.obd.ObdRepository
 import com.truempg.app.service.ObdService
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshDevices() = ObdRepository.refreshDevices()
     fun setVe(v: Double) = ObdRepository.setVe(v)
     fun setAutoConnect(enabled: Boolean) = ObdRepository.setAutoConnect(enabled)
+    fun setDistanceUnit(u: String) = ObdRepository.setDistanceUnit(u)
+    fun setEconomyUnit(u: String) = ObdRepository.setEconomyUnit(u)
+    fun setDisplacement(liters: Double) = ObdRepository.setDisplacement(liters)
+    fun setMethodOverride(method: MpgMethod?) = ObdRepository.setMethodOverride(method)
 
     fun connect(address: String) = ObdService.connect(getApplication<Application>(), address)
     fun disconnect() = ObdService.stop(getApplication<Application>())

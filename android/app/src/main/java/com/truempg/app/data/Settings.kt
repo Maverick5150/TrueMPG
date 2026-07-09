@@ -19,6 +19,21 @@ class Settings(context: Context) {
         get() = p.getString("savedAdapter", null)
         set(v) { p.edit().putString("savedAdapter", v).apply() }
 
+    /** Last negotiated ELM protocol number (e.g. "6") to speed up reconnects. */
+    var lastProtocol: String?
+        get() = p.getString("lastProtocol", null)
+        set(v) { p.edit().putString("lastProtocol", v).apply() }
+
+    /** "MPH" or "KMH" */
+    var distanceUnit: String
+        get() = p.getString("distanceUnit", "MPH") ?: "MPH"
+        set(v) { p.edit().putString("distanceUnit", v).apply() }
+
+    /** "MPG_US", "MPG_IMP", or "L_PER_100KM" */
+    var economyUnit: String
+        get() = p.getString("economyUnit", "MPG_US") ?: "MPG_US"
+        set(v) { p.edit().putString("economyUnit", v).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

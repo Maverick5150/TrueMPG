@@ -94,12 +94,47 @@ class ObdManager(context: Context) {
         }
     }
 
-    /** HS-CAN init: echo/linefeed/spaces off, headers off, protocol 6. */
+    /** Preferred ELM protocol number (e.g. "6"); null/blank => ATSP0 auto-detect. */
+    var preferredProtocol: String? = null
+
+    /**
+     * Universal init: echo/linefeed/spaces off, headers off, then either the
+     * saved protocol (fast reconnect) or ATSP0 auto-detect. A probe query forces
+     * the adapter to actually negotiate so the protocol is known afterwards.
+     */
     private suspend fun initAdapter() {
-        for (cmd in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP6")) {
-            send(cmd, settleMs = if (cmd == "ATZ") 900 else 200)
-        }
+        send("ATZ", settleMs = 900)
+        for (cmd in listOf("ATE0", "ATL0", "ATS0", "ATH0")) send(cmd, settleMs = 150)
+        val sp = preferredProtocol
+        if (sp.isNullOrBlank()) send("ATSP0", settleMs = 150) else send("ATSP$sp", settleMs = 150)
+        send("0100", settleMs = 300)   // force protocol negotiation
     }
+
+    /** Read the negotiated protocol number via ATDPN (drops the 'A' auto flag). */
+    suspend fun detectedProtocol(): String? {
+        val raw = send("ATDPN").uppercase()
+            .replace(">", "").replace("\r", "").replace("\n", "").trim()
+        val cleaned = raw.removePrefix("A").trim()
+        return cleaned.lastOrNull()?.takeIf { it.isLetterOrDigit() }?.toString()
+    }
+
+    /** Scan mode-01 supported-PID bitmasks (00/20/40/60/80) into a PID set. */
+    suspend fun querySupportedPids(): Set<Int> {
+        val supported = HashSet<Int>()
+        for (base in listOf(0x00, 0x20, 0x40, 0x60, 0x80)) {
+            val data = queryPid(base) ?: break
+            val decoded = ObdMath.decodeSupportedPids(base, data)
+            supported.addAll(decoded)
+            if ((base + 0x20) !in decoded) break
+        }
+        return supported
+    }
+
+    /** Mode 09 PID 02 VIN, or null if the vehicle/adapter won't report it. */
+    suspend fun readVin(): String? = ObdMath.parseVin(send("0902", timeoutMs = 3500))
+
+    /** Mode 01 PID 51 fuel-type code (1=gasoline, 4=diesel), or null. */
+    suspend fun queryFuelType(): Int? = ObdMath.fuelType(queryPid(0x51) ?: emptyList())
 
     /** Send one command, read until the '>' prompt (or timeout). */
     suspend fun send(cmd: String, settleMs: Long = 0, timeoutMs: Long = 2500): String =
