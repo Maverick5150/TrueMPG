@@ -61,7 +61,14 @@
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" fe81c11)",
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 2f256ef)",
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 77c780c)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 8847151)",
+      "PowerShell(gh auth status)",
+      "PowerShell(java -version)",
+      "PowerShell(Test-Path \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\"; Test-Path \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\\\\bin\\\\java.exe\"; Get-ChildItem \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "Bash(tail -2)",
+      "Bash(git rev-parse *)",
+      "Bash(echo HEAD=__TRACKED_VAR__)"
     ]
   }
 }

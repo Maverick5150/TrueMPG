@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -175,6 +177,21 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
                 "adapter. \"Allow background running\" keeps the service alive mid-drive.",
             fontSize = 12.sp
         )
+        var showHelp by remember { mutableStateOf(false) }
+        TextButton(onClick = { showHelp = !showHelp }) {
+            Text(if (showHelp) "Hide auto-connect help" else "Auto-connect not firing after truck sits?")
+        }
+        if (showHelp) {
+            Text("If the truck is off for a while, aggressive phones kill the app so it " +
+                "can't wake when the adapter powers back up. To make it reliable:",
+                fontSize = 12.sp)
+            Text("1. Tap \"Allow background running\" above (exempt from battery optimization).",
+                fontSize = 12.sp)
+            Text("2. Enable Autostart / auto-launch for TrueMPG — off by default on Xiaomi/MIUI, " +
+                "Oppo, Vivo, Huawei, OnePlus.", fontSize = 12.sp)
+            Text("3. Open recent apps and lock TrueMPG so it isn't swiped away.", fontSize = 12.sp)
+            OutlinedButton(onClick = { openAutostartSettings(ctx) }) { Text("Open Autostart settings") }
+        }
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
@@ -423,6 +440,42 @@ private fun formatSpeed(mph: Double, unit: String): String =
 
 private fun formatTemp(celsius: Double, unit: String): String =
     if (unit == "F") "%.0f °F".format(celsius * 9.0 / 5.0 + 32.0) else "%.0f °C".format(celsius)
+
+// Known OEM autostart / background-launch manager screens (best effort).
+private val AUTOSTART_TARGETS = listOf(
+    "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+    "com.letv.android.letvsafe" to "com.letv.android.letvsafe.AutostartManageActivity",
+    "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+    "com.huawei.systemmanager" to "com.huawei.systemmanager.optimize.process.ProtectActivity",
+    "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+    "com.coloros.safecenter" to "com.coloros.safecenter.startupapp.StartupAppListActivity",
+    "com.oppo.safe" to "com.oppo.safe.permission.startup.StartupAppListActivity",
+    "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+    "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+    "com.oneplus.security" to "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity",
+    "com.samsung.android.lool" to "com.samsung.android.sm.ui.battery.BatteryActivity",
+)
+
+private fun openAutostartSettings(context: Context) {
+    for ((pkg, cls) in AUTOSTART_TARGETS) {
+        try {
+            context.startActivity(
+                Intent().setComponent(ComponentName(pkg, cls))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            return
+        } catch (e: Exception) { /* not this OEM; try the next */ }
+    }
+    // Fallback: this app's system settings page.
+    try {
+        context.startActivity(
+            Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + context.packageName)
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: Exception) {}
+}
 
 private fun methodLabel(m: MpgMethod): String = when (m) {
     MpgMethod.FUEL_RATE -> "fuel-rate PID"

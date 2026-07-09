@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.7: Phase 5 - fill-up calibration wizard, tow/haul profiles,
-        // fuel cost tracking
-        versionCode = 8
-        versionName = "1.0.7"
+        // 1.0.8: reliable auto-connect after long idle/app-kill - BOOT_COMPLETED
+        // receiver, manifest ACL receiver, OEM autostart/battery guidance
+        versionCode = 9
+        versionName = "1.0.8"
     }
 
     buildTypes {
