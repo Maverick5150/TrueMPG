@@ -7,8 +7,11 @@ import com.truempg.app.UiState
 import com.truempg.app.data.Settings
 import com.truempg.app.data.Trip
 import com.truempg.app.data.TripStore
+import com.truempg.app.data.BatteryStore
+import com.truempg.app.data.BlackBoxLogger
 import com.truempg.app.data.CalProfile
 import com.truempg.app.data.CalibrationStore
+import com.truempg.app.data.CrankReading
 import com.truempg.app.data.Fillup
 import com.truempg.app.data.FillupStore
 import com.truempg.app.data.VehicleProfile
@@ -38,6 +41,8 @@ object ObdRepository {
     private lateinit var vehicleStore: VehicleStore
     private lateinit var calStore: CalibrationStore
     private lateinit var fillupStore: FillupStore
+    private lateinit var blackBox: BlackBoxLogger
+    private lateinit var batteryStore: BatteryStore
     private lateinit var settings: Settings
     @Volatile private var inited = false
 
@@ -45,6 +50,11 @@ object ObdRepository {
     @Volatile private var activeFactor = 1.0        // multiplies estimated fuel flow
     private var sinceGal = 0.0                       // fuel used since last fill-up
     private var sinceMiles = 0.0
+
+    // Phase 6: battery-health capture window (lowest volts shortly after connect)
+    private var captureUntilMs = 0L
+    private var captureMin = Double.MAX_VALUE
+    private var batteryCaptured = true
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
@@ -76,6 +86,8 @@ object ObdRepository {
         vehicleStore = VehicleStore(app)
         calStore = CalibrationStore(app)
         fillupStore = FillupStore(app)
+        blackBox = BlackBoxLogger(app)
+        batteryStore = BatteryStore(app)
         settings = Settings(app)
         sinceGal = settings.galSinceFillup
         sinceMiles = settings.milesSinceFillup
@@ -93,6 +105,10 @@ object ObdRepository {
             galSinceFillup = sinceGal,
             milesSinceFillup = sinceMiles,
             lastPricePerGal = settings.lastPricePerGal,
+            blackBoxEnabled = settings.blackBoxEnabled,
+            logNames = blackBox.listLogs().map { it.name },
+            batteryReadings = batteryStore.load().take(30),
+            batteryAvg = batteryStore.recentAverage(),
             autoConnect = settings.autoConnect,
             savedAdapter = settings.savedAdapterAddress,
             tripActive = active != null,
@@ -377,6 +393,10 @@ object ObdRepository {
     // ---- polling ----
     private fun startPolling() {
         pollJob?.cancel()
+        // Arm battery-health capture: record the lowest volts in the next ~8s.
+        captureUntilMs = System.currentTimeMillis() + 8000
+        captureMin = Double.MAX_VALUE
+        batteryCaptured = false
         pollJob = scope.launch {
             var lastNs = System.nanoTime()
             while (isActive) {
@@ -446,6 +466,7 @@ object ObdRepository {
             active = true
             tripStartMs = System.currentTimeMillis()
             firedAlerts.clear()                  // new trip -> alerts fire again
+            if (settings.blackBoxEnabled) blackBox.start(tripStartMs)
         }
         val addMiles = if (active) r.mph * dtHours else 0.0
         val addGals = if (active) gph * dtHours else 0.0
@@ -463,7 +484,33 @@ object ObdRepository {
                 milesSinceFillup = sinceMiles,
             )
         }
+        if (blackBox.active && active) {
+            val tSec = (System.currentTimeMillis() - tripStartMs) / 1000.0
+            blackBox.log(tSec, r.mph, r.rpm, r.mapk, r.iat, r.coolant, r.throttle,
+                r.load, r.fuel, r.volts, r.lam, r.maf, r.fuelRate, inst)
+        }
+        captureBattery(r)
         maybePersistActiveTrip()
+    }
+
+    private fun captureBattery(r: Raw) {
+        if (batteryCaptured) return
+        val v = r.volts ?: return
+        val now = System.currentTimeMillis()
+        if (now <= captureUntilMs) {
+            captureMin = minOf(captureMin, v)
+        } else {
+            batteryCaptured = true
+            val crankV = if (captureMin < Double.MAX_VALUE) captureMin else v
+            batteryStore.add(CrankReading(now, crankV))
+            state.update {
+                it.copy(batteryReadings = batteryStore.load().take(30),
+                    batteryAvg = batteryStore.recentAverage())
+            }
+            if (settings.alertsEnabled && crankV < 11.8)
+                Alerts.post(app, "battery".hashCode(), "Weak battery",
+                    "Start voltage ${"%.1f".format(crankV)} V is low — battery/charging may be failing.")
+        }
     }
 
     private fun maybePersistActiveTrip() {
@@ -579,6 +626,7 @@ object ObdRepository {
     fun startTrip() {
         tripStartMs = System.currentTimeMillis()
         firedAlerts.clear()
+        if (settings.blackBoxEnabled) blackBox.start(tripStartMs)
         settings.saveActiveTrip(tripStartMs, 0.0, 0.0)
         state.update { it.copy(tripActive = true, tripMiles = 0.0, tripGallons = 0.0, tripElapsedSec = 0) }
     }
@@ -597,10 +645,39 @@ object ObdRepository {
                 )
             )
         }
+        blackBox.stop()
+        blackBox.prune(settings.maxLogs)
         settings.clearActiveTrip()
         state.update {
             it.copy(tripActive = false, tripMiles = 0.0, tripGallons = 0.0,
-                tripElapsedSec = 0, trips = tripStore.load())
+                tripElapsedSec = 0, trips = tripStore.load(),
+                logNames = blackBox.listLogs().map { f -> f.name })
+        }
+    }
+
+    fun setBlackBoxEnabled(enabled: Boolean) {
+        settings.blackBoxEnabled = enabled
+        if (!enabled) blackBox.stop()
+        else if (state.value.tripActive) blackBox.start(tripStartMs)
+        state.update { it.copy(blackBoxEnabled = enabled) }
+    }
+
+    /** Root-cause analyzer: snapshot the relevant PIDs and rank causes. */
+    fun analyzeDtc(code: String) {
+        scope.launch {
+            state.update { it.copy(diagnosing = true, diagnosis = null) }
+            val snap = Diagnostics.Snapshot(
+                stft1 = ObdMath.fuelTrimPct(obd.queryPid(0x06) ?: emptyList()),
+                ltft1 = ObdMath.fuelTrimPct(obd.queryPid(0x07) ?: emptyList()),
+                stft2 = ObdMath.fuelTrimPct(obd.queryPid(0x08) ?: emptyList()),
+                ltft2 = ObdMath.fuelTrimPct(obd.queryPid(0x09) ?: emptyList()),
+                lambda = ObdMath.lambda(obd.queryPid(0x44) ?: emptyList()),
+                coolantC = ObdMath.coolantC(obd.queryPid(0x05) ?: emptyList()),
+                load = ObdMath.engineLoadPct(obd.queryPid(0x04) ?: emptyList()),
+                rpm = ObdMath.rpm(obd.queryPid(0x0C) ?: emptyList()),
+                mapKpa = ObdMath.mapKpa(obd.queryPid(0x0B) ?: emptyList()),
+            )
+            state.update { it.copy(diagnosing = false, diagnosis = Diagnostics.analyze(code, snap)) }
         }
     }
 

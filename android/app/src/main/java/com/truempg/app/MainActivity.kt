@@ -28,13 +28,16 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.FileProvider
 import com.truempg.app.data.Trip
+import com.truempg.app.obd.Diagnostics
 import com.truempg.app.obd.DtcDescriptions
 import com.truempg.app.obd.ObdMath
 import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.obd.PidRegistry
 import com.truempg.app.obd.PidSpec
 import com.truempg.app.ui.TrueMpgTheme
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -477,6 +480,22 @@ private fun openAutostartSettings(context: Context) {
     } catch (e: Exception) {}
 }
 
+private fun shareCsv(context: Context, file: File) {
+    try {
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/csv")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(
+            Intent.createChooser(send, "Share ${file.name}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: Exception) { /* nothing to share / no handler */ }
+}
+
+private fun blackboxFile(context: Context, name: String): File =
+    File(File(context.filesDir, "blackbox"), name)
+
 private fun methodLabel(m: MpgMethod): String = when (m) {
     MpgMethod.FUEL_RATE -> "fuel-rate PID"
     MpgMethod.MAF -> "MAF"
@@ -488,6 +507,7 @@ private fun methodLabel(m: MpgMethod): String = when (m) {
 private fun TripsScreen(vm: MainViewModel, state: UiState) {
     val fmt = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
     val price = state.lastPricePerGal
+    val ctx = LocalContext.current
     LazyColumn(
         Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -506,8 +526,42 @@ private fun TripsScreen(vm: MainViewModel, state: UiState) {
                 Text("This month: $${"%.2f".format(state.monthlyFuelCost)} on fuel",
                     color = MaterialTheme.colorScheme.secondary)
         }
+
+        item {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Black-box logging", fontWeight = FontWeight.SemiBold)
+                Switch(checked = state.blackBoxEnabled,
+                    onCheckedChange = { vm.setBlackBoxEnabled(it) })
+            }
+            Text("Records every trip to CSV (all PIDs) for later review/export.", fontSize = 12.sp)
+        }
+
+        if (state.batteryReadings.isNotEmpty()) {
+            item {
+                HorizontalDivider()
+                Text("Battery health", fontWeight = FontWeight.SemiBold)
+                state.batteryAvg?.let {
+                    Text("Recent avg start voltage: ${"%.1f".format(it)} V" +
+                        (if (it < 12.0) " — trending low" else ""),
+                        color = if (it < 12.0) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                }
+                state.batteryReadings.take(6).forEach { br ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(fmt.format(Date(br.timestamp)), fontSize = 12.sp)
+                        Text("${"%.1f".format(br.voltage)} V", fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
         if (state.fillups.isNotEmpty()) {
-            item { Text("Recent fill-ups", fontWeight = FontWeight.SemiBold) }
+            item { HorizontalDivider(); Text("Recent fill-ups", fontWeight = FontWeight.SemiBold) }
             items(state.fillups.take(5)) { f ->
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
@@ -521,20 +575,32 @@ private fun TripsScreen(vm: MainViewModel, state: UiState) {
                 }
             }
         }
-        item { Text("Trip history", fontWeight = FontWeight.SemiBold) }
+
+        item { HorizontalDivider(); Text("Trip history", fontWeight = FontWeight.SemiBold) }
         if (state.trips.isEmpty()) {
             item { Text("No saved trips yet. Start one on the Drive tab.") }
         } else {
-            items(state.trips) { t -> TripRow(t, fmt.format(Date(t.startedAt)), price) }
+            items(state.trips) { t ->
+                val logName = "trip_${t.startedAt}.csv".takeIf { state.logNames.contains(it) }
+                TripRow(t, fmt.format(Date(t.startedAt)), price, logName, ctx)
+            }
         }
     }
 }
 
 @Composable
-private fun TripRow(t: Trip, dateLabel: String, pricePerGal: Double) {
+private fun TripRow(t: Trip, dateLabel: String, pricePerGal: Double, logName: String?, ctx: Context) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
-            Text(dateLabel, fontWeight = FontWeight.Bold)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(dateLabel, fontWeight = FontWeight.Bold)
+                if (logName != null)
+                    TextButton(onClick = { shareCsv(ctx, blackboxFile(ctx, logName)) }) { Text("Export CSV") }
+            }
             Text("${"%.1f".format(t.avgMpg)} MPG avg", fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.secondary)
             Text("${"%.2f".format(t.miles)} mi · ${"%.3f".format(t.gallons)} gal · " +
@@ -563,11 +629,28 @@ private fun CodesScreen(vm: MainViewModel, state: UiState) {
         state.dtcs.forEach { code ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text(code, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(code, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        TextButton(onClick = { vm.analyzeDtc(code) }, enabled = state.connected) {
+                            Text("Analyze")
+                        }
+                    }
                     DtcDescriptions.describe(code)?.let { Text(it, fontSize = 13.sp) }
                 }
             }
         }
+        if (state.diagnosing) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Analyzing…")
+            }
+        }
+        state.diagnosis?.let { dx -> DiagnosisCard(dx) }
         state.freezeDtc?.let {
             HorizontalDivider()
             Text("Freeze frame", fontWeight = FontWeight.SemiBold)
@@ -591,6 +674,44 @@ private fun CodesScreen(vm: MainViewModel, state: UiState) {
         if (!state.connected) Text("Connect first.", color = MaterialTheme.colorScheme.error)
         Text("Clearing turns the light off but does not fix the fault — real codes return.",
             fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun DiagnosisCard(dx: Diagnostics.Diagnosis) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Diagnosis: ${dx.code}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(dx.title, color = MaterialTheme.colorScheme.secondary)
+            if (dx.evidence.isNotEmpty()) {
+                Text("Evidence (live snapshot)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                dx.evidence.forEach { Text("• $it", fontSize = 12.sp) }
+            }
+            Text("Likely causes", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            dx.causes.forEach { c ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(c.text, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        c.confidence.label(), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        color = when (c.confidence) {
+                            Diagnostics.Confidence.LIKELY -> MaterialTheme.colorScheme.error
+                            Diagnostics.Confidence.POSSIBLE -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+            Text("Checks to confirm", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            dx.checks.forEach { Text("• $it", fontSize = 12.sp) }
+            Text("Confidence is from a live snapshot — drive under the fault's conditions and " +
+                "re-analyze for a stronger read. Never replace parts on \"Possible\" alone.",
+                fontSize = 11.sp)
+        }
     }
 }
 

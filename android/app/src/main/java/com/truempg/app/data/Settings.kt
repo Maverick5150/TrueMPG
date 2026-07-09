@@ -67,6 +67,15 @@ class Settings(context: Context) {
         get() = Double.fromBits(p.getLong("lastPricePerGal", (0.0).toRawBits()))
         set(v) { p.edit().putLong("lastPricePerGal", v.toRawBits()).apply() }
 
+    // ---- black-box logging ----
+    var blackBoxEnabled: Boolean
+        get() = p.getBoolean("blackBoxEnabled", false)
+        set(v) { p.edit().putBoolean("blackBoxEnabled", v).apply() }
+
+    var maxLogs: Int
+        get() = p.getInt("maxLogs", 20)
+        set(v) { p.edit().putInt("maxLogs", v).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

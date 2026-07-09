@@ -68,7 +68,19 @@
       "PowerShell(Test-Path \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\"; Test-Path \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\\\\bin\\\\java.exe\"; Get-ChildItem \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\" -ErrorAction SilentlyContinue | Select-Object Name)",
       "Bash(tail -2)",
       "Bash(git rev-parse *)",
-      "Bash(echo HEAD=__TRACKED_VAR__)"
+      "Bash(echo HEAD=__TRACKED_VAR__)",
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" b614502)",
+      "PowerShell(\"url=https://github.com\" | git credential fill 2>$null | ForEach-Object { if \\($_ -match '^\\(username|password\\)='\\) { $k,$v = $_ -split '=',2; if \\($k -eq 'password'\\) { \"password=$\\($v.Substring\\(0,[Math]::Min\\(8,$v.Length\\)\\)\\)... \\(len $\\($v.Length\\)\\)\" } else { $_ } } })",
+      "Bash(git credential *)",
+      "Bash(cat /tmp/rewind_repo.json)",
+      "Bash(python -c \"import nacl; print\\('pynacl ok'\\)\")",
+      "Bash(pip install *)",
+      "Bash(tail -3 \"/c/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/7d279161-6006-4e8e-b29d-093bf16b68fe/tasks/bdrlecxc8.output\")",
+      "Read(//c/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/7d279161-6006-4e8e-b29d-093bf16b68fe/scratchpad/**)",
+      "Bash(ls -la apk.zip app-debug.apk classes*.dex)",
+      "Bash(unzip -l apk.zip)",
+      "Bash(ls -la apk.zip)",
+      "Bash(cat \"../tasks/bbaycyh07.output\")"
     ]
   }
 }

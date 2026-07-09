@@ -1,7 +1,9 @@
 package com.truempg.app
 
+import com.truempg.app.data.CrankReading
 import com.truempg.app.data.Fillup
 import com.truempg.app.data.Trip
+import com.truempg.app.obd.Diagnostics.Diagnosis
 import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.obd.ObdMath.Readiness
 
@@ -76,4 +78,11 @@ data class UiState(
     val lastPricePerGal: Double = 0.0,
     val fillups: List<Fillup> = emptyList(),
     val monthlyFuelCost: Double = 0.0,
+    // Phase 6: black box, battery health, root-cause analyzer
+    val blackBoxEnabled: Boolean = false,
+    val logNames: List<String> = emptyList(),
+    val batteryReadings: List<CrankReading> = emptyList(),
+    val batteryAvg: Double? = null,
+    val diagnosing: Boolean = false,
+    val diagnosis: Diagnosis? = null,
 )

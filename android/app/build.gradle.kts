@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.8: reliable auto-connect after long idle/app-kill - BOOT_COMPLETED
-        // receiver, manifest ACL receiver, OEM autostart/battery guidance
-        versionCode = 9
-        versionName = "1.0.8"
+        // 1.0.9: Phase 6 - black-box CSV logging, battery-health trends,
+        // trip/log CSV export, root-cause analyzer
+        versionCode = 10
+        versionName = "1.0.9"
     }
 
     buildTypes {
