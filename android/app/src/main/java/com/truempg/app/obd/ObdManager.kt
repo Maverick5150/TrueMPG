@@ -94,20 +94,43 @@ class ObdManager(context: Context) {
         }
     }
 
-    /** Preferred ELM protocol number (e.g. "6"); null/blank => ATSP0 auto-detect. */
+    /** Saved protocol number to try first (fast reconnect); may be null/blank. */
     var preferredProtocol: String? = null
 
+    /** The protocol that actually returned PID data on this connection. */
+    var workingProtocol: String? = null
+        private set
+
+    // CAN first (modern vehicles), then legacy; "0" (auto) only as a last resort.
+    private val protocolCandidates = listOf("6", "7", "8", "9", "1", "2", "3", "4", "5", "0")
+
     /**
-     * Universal init: echo/linefeed/spaces off, headers off, then either the
-     * saved protocol (fast reconnect) or ATSP0 auto-detect. A probe query forces
-     * the adapter to actually negotiate so the protocol is known afterwards.
+     * Init the adapter, then find a protocol that ACTUALLY returns PID data.
+     * Tries the saved protocol first, then each candidate, verifying with a real
+     * 0100 query before accepting. Fixes ATSP0 auto-detect connecting but
+     * returning empty on some vehicles (e.g. Ford HS-CAN needs protocol 6).
      */
     private suspend fun initAdapter() {
         send("ATZ", settleMs = 900)
         for (cmd in listOf("ATE0", "ATL0", "ATS0", "ATH0")) send(cmd, settleMs = 150)
-        val sp = preferredProtocol
-        if (sp.isNullOrBlank()) send("ATSP0", settleMs = 150) else send("ATSP$sp", settleMs = 150)
-        send("0100", settleMs = 300)   // force protocol negotiation
+        workingProtocol = negotiateProtocol()
+    }
+
+    private suspend fun negotiateProtocol(): String? {
+        val order = ArrayList<String>()
+        preferredProtocol?.takeIf { it.isNotBlank() }?.let { order.add(it) }
+        for (p in protocolCandidates) if (p !in order) order.add(p)
+        for (p in order) {
+            send("ATSP$p", settleMs = 150)
+            // First probe may return SEARCHING; try up to twice before rejecting.
+            repeat(2) {
+                val raw = send("0100", settleMs = 200, timeoutMs = 4000)
+                if (ObdMath.parseData(raw, 0x01, 0x00) != null) {
+                    return if (p == "0") (detectedProtocol() ?: "0") else p
+                }
+            }
+        }
+        return null
     }
 
     /** Read the negotiated protocol number via ATDPN (drops the 'A' auto flag). */
@@ -126,6 +149,13 @@ class ObdManager(context: Context) {
             val decoded = ObdMath.decodeSupportedPids(base, data)
             supported.addAll(decoded)
             if ((base + 0x20) !in decoded) break
+        }
+        if (supported.isEmpty()) {
+            // Bitmask unavailable -> probe the PIDs we actually use directly, so
+            // a flaky 0100 can't leave us thinking the vehicle supports nothing.
+            for (pid in listOf(0x04, 0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x2F, 0x42, 0x44, 0x5E)) {
+                if (queryPid(pid) != null) supported.add(pid)
+            }
         }
         return supported
     }

@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.3: Phase 3 universal vehicle support (protocol auto-detect,
-        // capability discovery, universal MPG engine, units, graceful degrade)
-        versionCode = 4
-        versionName = "1.0.3"
+        // 1.0.4: fix ATSP0 regression - verify-before-accept protocol
+        // negotiation (CAN 6 first), repair empty cached profiles
+        versionCode = 5
+        versionName = "1.0.4"
     }
 
     buildTypes {

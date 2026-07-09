@@ -164,25 +164,36 @@ object ObdRepository {
         }
     }
 
-    /** Protocol readback + VIN + capability discovery -> per-vehicle profile. */
+    /** Verified protocol + VIN + capability discovery -> per-vehicle profile. */
     private suspend fun identifyVehicle(address: String) {
-        val proto = try { obd.detectedProtocol() } catch (e: Exception) { null }
+        val proto = obd.workingProtocol            // protocol that actually returned data
         if (!proto.isNullOrBlank()) settings.lastProtocol = proto
 
         val vin = try { obd.readVin() } catch (e: Exception) { null }
-        val id = vin ?: address
+        val existing = vehicleStore.find(vin ?: address)
+        val id = existing?.id ?: (vin ?: address)
 
-        var profile = vehicleStore.find(id)
-        if (profile == null) {
+        val profile: VehicleProfile
+        // (Re)discover when new OR when a prior (broken) profile has no PIDs.
+        if (existing == null || existing.supportedPids.isEmpty()) {
             val pids = try { obd.querySupportedPids() } catch (e: Exception) { emptySet() }
-            val fuel = try { obd.queryFuelType() } catch (e: Exception) { null } ?: ObdMath.FUEL_GASOLINE
-            profile = VehicleProfile(
-                id = id, vin = vin, label = ObdMath.vehicleLabel(vin),
-                protocol = proto, supportedPids = pids, fuelType = fuel,
+            val fuel = try { obd.queryFuelType() } catch (e: Exception) { null }
+                ?: existing?.fuelType ?: ObdMath.FUEL_GASOLINE
+            val label = ObdMath.vehicleLabel(vin).takeIf { it != "Vehicle" }
+                ?: existing?.label ?: "Vehicle"
+            profile = (existing ?: VehicleProfile(id = id)).copy(
+                id = id,
+                vin = vin ?: existing?.vin,
+                label = label,
+                protocol = proto ?: existing?.protocol,
+                supportedPids = pids,
+                fuelType = fuel,
             )
             vehicleStore.save(profile)
-        } else if (!proto.isNullOrBlank() && profile.protocol != proto) {
-            profile = profile.copy(protocol = proto).also { vehicleStore.save(it) }
+        } else {
+            profile = if (!proto.isNullOrBlank() && existing.protocol != proto)
+                existing.copy(protocol = proto).also { vehicleStore.save(it) }
+            else existing
         }
         currentProfile = profile
 
