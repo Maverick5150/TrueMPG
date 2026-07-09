@@ -47,4 +47,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setBlackBoxEnabled(enabled: Boolean) = ObdRepository.setBlackBoxEnabled(enabled)
     fun analyzeDtc(code: String) = ObdRepository.analyzeDtc(code)
+
+    fun setKeepScreenOn(on: Boolean) = ObdRepository.setKeepScreenOn(on)
+    fun markServiceDone(name: String) = ObdRepository.markServiceDone(name)
+    fun addServiceItem(name: String, intervalMiles: Int) = ObdRepository.addServiceItem(name, intervalMiles)
+    fun setOdometer(miles: Double) = ObdRepository.setOdometer(miles)
 }

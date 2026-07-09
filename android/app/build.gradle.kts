@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.1.0: Phase 7 - driving coach, boost gauge, 0-60/quarter-mile
-        // performance timers, mirrored HUD mode
-        versionCode = 11
-        versionName = "1.1.0"
+        // 1.2.0: Phase 8 - maintenance tracker, home-screen widget, keep-screen-on,
+        // per-vehicle trips (multi-vehicle), bigger Drive numbers
+        versionCode = 12
+        versionName = "1.2.0"
     }
 
     buildTypes {

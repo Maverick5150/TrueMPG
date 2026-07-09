@@ -2,6 +2,7 @@ package com.truempg.app
 
 import com.truempg.app.data.CrankReading
 import com.truempg.app.data.Fillup
+import com.truempg.app.data.ServiceItem
 import com.truempg.app.data.Trip
 import com.truempg.app.obd.Diagnostics.Diagnosis
 import com.truempg.app.obd.ObdMath.MpgMethod
@@ -97,4 +98,9 @@ data class UiState(
     val best060Sec: Double = 0.0,
     val bestQuarterSec: Double = 0.0,
     val bestQuarterMph: Double = 0.0,
+    // Phase 8: maintenance, multi-vehicle, polish
+    val odometer: Double = 0.0,
+    val maintenance: List<ServiceItem> = emptyList(),
+    val knownVehicles: List<String> = emptyList(),
+    val keepScreenOn: Boolean = true,
 )

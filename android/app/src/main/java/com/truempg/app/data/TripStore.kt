@@ -15,6 +15,7 @@ data class Trip(
     val idlePct: Double = 0.0,
     val hardAccels: Int = 0,
     val peakBoostPsi: Double = 0.0,
+    val vehicleId: String = "",
 ) {
     val avgMpg: Double get() = if (gallons > 1e-6) miles / gallons else 0.0
 }
@@ -41,6 +42,7 @@ class TripStore(context: Context) {
                     idlePct = o.optDouble("idlePct", 0.0),
                     hardAccels = o.optInt("hardAccels", 0),
                     peakBoostPsi = o.optDouble("peakBoostPsi", 0.0),
+                    vehicleId = o.optString("vehicleId", ""),
                 )
             }.sortedByDescending { it.startedAt }
         } catch (e: Exception) {
@@ -69,6 +71,7 @@ class TripStore(context: Context) {
                     .put("idlePct", t.idlePct)
                     .put("hardAccels", t.hardAccels)
                     .put("peakBoostPsi", t.peakBoostPsi)
+                    .put("vehicleId", t.vehicleId)
             )
         }
         file.writeText(arr.toString())

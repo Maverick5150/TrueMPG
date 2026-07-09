@@ -76,6 +76,20 @@ class Settings(context: Context) {
         get() = p.getInt("maxLogs", 20)
         set(v) { p.edit().putInt("maxLogs", v).apply() }
 
+    // ---- UI polish + widget ----
+    var keepScreenOn: Boolean
+        get() = p.getBoolean("keepScreenOn", true)
+        set(v) { p.edit().putBoolean("keepScreenOn", v).apply() }
+
+    /** Last completed-trip MPG and status text, cached for the home-screen widget. */
+    var widgetMpg: Double
+        get() = Double.fromBits(p.getLong("widgetMpg", (0.0).toRawBits()))
+        set(v) { p.edit().putLong("widgetMpg", v.toRawBits()).apply() }
+
+    var widgetStatus: String
+        get() = p.getString("widgetStatus", "Not connected") ?: "Not connected"
+        set(v) { p.edit().putString("widgetStatus", v).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

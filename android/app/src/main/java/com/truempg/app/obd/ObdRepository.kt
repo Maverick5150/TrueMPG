@@ -14,10 +14,12 @@ import com.truempg.app.data.CalibrationStore
 import com.truempg.app.data.CrankReading
 import com.truempg.app.data.Fillup
 import com.truempg.app.data.FillupStore
+import com.truempg.app.data.MaintenanceStore
 import com.truempg.app.data.VehicleProfile
 import com.truempg.app.data.VehicleStore
 import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.service.Alerts
+import com.truempg.app.widget.MpgWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,7 +46,9 @@ object ObdRepository {
     private lateinit var fillupStore: FillupStore
     private lateinit var blackBox: BlackBoxLogger
     private lateinit var batteryStore: BatteryStore
+    private lateinit var maintStore: MaintenanceStore
     private lateinit var settings: Settings
+    private val maintNotified = HashSet<String>()
     @Volatile private var inited = false
 
     // Phase 5: calibration + fuel accounting
@@ -108,6 +112,7 @@ object ObdRepository {
         fillupStore = FillupStore(app)
         blackBox = BlackBoxLogger(app)
         batteryStore = BatteryStore(app)
+        maintStore = MaintenanceStore(app)
         settings = Settings(app)
         sinceGal = settings.galSinceFillup
         sinceMiles = settings.milesSinceFillup
@@ -129,6 +134,8 @@ object ObdRepository {
             logNames = blackBox.listLogs().map { it.name },
             batteryReadings = batteryStore.load().take(30),
             batteryAvg = batteryStore.recentAverage(),
+            keepScreenOn = settings.keepScreenOn,
+            knownVehicles = vehicleStore.loadAll().map { it.label },
             autoConnect = settings.autoConnect,
             savedAdapter = settings.savedAdapterAddress,
             tripActive = active != null,
@@ -322,7 +329,28 @@ object ObdRepository {
         }
         firedAlerts.clear()
         loadCalibration(profile.id)
+        state.update {
+            it.copy(
+                odometer = maintStore.odometer(profile.id),
+                maintenance = maintStore.items(profile.id),
+                trips = tripsForCurrent(),
+                knownVehicles = vehicleStore.loadAll().map { v -> v.label },
+            )
+        }
+        updateWidget(null, "Connected · ${profile.label}")
         refreshDiagnostics(alertOnNew = false)   // seed readiness/freeze/DTCs (no alert)
+    }
+
+    private fun tripsForCurrent(): List<Trip> {
+        val id = currentProfile?.id
+        val all = tripStore.load()
+        return if (id == null) all else all.filter { it.vehicleId == id || it.vehicleId.isEmpty() }
+    }
+
+    private fun updateWidget(mpg: Double?, status: String) {
+        if (mpg != null) settings.widgetMpg = mpg
+        settings.widgetStatus = status
+        try { MpgWidget.refresh(app) } catch (e: Exception) {}
     }
 
     // ---- Phase 5: calibration profiles + fill-up wizard ----
@@ -410,6 +438,33 @@ object ObdRepository {
         autoSaveActiveTrip()
         obd.close()
         state.update { it.copy(connected = false, connecting = false, status = "Disconnected") }
+        updateWidget(null, "Disconnected")
+    }
+
+    // ---- Phase 8: maintenance + polish ----
+    fun setKeepScreenOn(on: Boolean) {
+        settings.keepScreenOn = on
+        state.update { it.copy(keepScreenOn = on) }
+    }
+
+    fun markServiceDone(name: String) {
+        val id = currentProfile?.id ?: return
+        maintStore.markDone(id, name)
+        maintNotified.remove(name)
+        state.update { it.copy(maintenance = maintStore.items(id)) }
+    }
+
+    fun addServiceItem(name: String, intervalMiles: Int) {
+        val id = currentProfile?.id ?: return
+        if (name.isBlank() || intervalMiles <= 0) return
+        maintStore.addItem(id, name, intervalMiles)
+        state.update { it.copy(maintenance = maintStore.items(id)) }
+    }
+
+    fun setOdometer(miles: Double) {
+        val id = currentProfile?.id ?: return
+        maintStore.setOdometer(id, miles)
+        state.update { it.copy(odometer = maintStore.odometer(id), maintenance = maintStore.items(id)) }
     }
 
     // ---- polling ----
@@ -729,6 +784,7 @@ object ObdRepository {
 
     private fun autoSaveActiveTrip() {
         val s = state.value
+        val vehicleId = currentProfile?.id ?: ""
         if (s.tripActive && (s.tripMiles > 0.0 || s.tripGallons > 0.0)) {
             val idlePct = if (coachActiveSec > 0) coachIdleSec / coachActiveSec * 100.0 else 0.0
             val highPct = if (coachActiveSec > 0) coachHighLoadSec / coachActiveSec * 100.0 else 0.0
@@ -744,16 +800,31 @@ object ObdRepository {
                     idlePct = idlePct,
                     hardAccels = coachHardAccels,
                     peakBoostPsi = peakBoostKpa * 0.145038,
+                    vehicleId = vehicleId,
                 )
             )
+            if (vehicleId.isNotEmpty()) {
+                val odo = maintStore.addMiles(vehicleId, s.tripMiles)
+                if (settings.alertsEnabled) {
+                    maintStore.items(vehicleId).filter { it.due(odo) }.forEach { d ->
+                        if (maintNotified.add(d.name))
+                            Alerts.post(app, ("maint" + d.name).hashCode(),
+                                "Maintenance due", "${d.name} is due (interval ${d.intervalMiles} mi).")
+                    }
+                }
+            }
+            val mpg = if (s.tripGallons > 1e-6) s.tripMiles / s.tripGallons else 0.0
+            updateWidget(mpg, "Last trip ${"%.1f".format(mpg)} MPG")
         }
         blackBox.stop()
         blackBox.prune(settings.maxLogs)
         settings.clearActiveTrip()
         state.update {
             it.copy(tripActive = false, tripMiles = 0.0, tripGallons = 0.0,
-                tripElapsedSec = 0, trips = tripStore.load(),
-                logNames = blackBox.listLogs().map { f -> f.name })
+                tripElapsedSec = 0, trips = tripsForCurrent(),
+                logNames = blackBox.listLogs().map { f -> f.name },
+                odometer = if (vehicleId.isNotEmpty()) maintStore.odometer(vehicleId) else it.odometer,
+                maintenance = if (vehicleId.isNotEmpty()) maintStore.items(vehicleId) else it.maintenance)
         }
     }
 

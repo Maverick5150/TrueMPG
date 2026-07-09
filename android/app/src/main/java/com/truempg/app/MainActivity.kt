@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -252,6 +253,17 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
             FilterChip(selected = state.tempUnit == "F",
                 onClick = { vm.setTempUnit("F") }, label = { Text("°F") })
         }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Keep screen on while driving")
+            Switch(checked = state.keepScreenOn, onCheckedChange = { vm.setKeepScreenOn(it) })
+        }
+        if (state.knownVehicles.isNotEmpty())
+            Text("Known vehicles: ${state.knownVehicles.joinToString(", ")} " +
+                "(auto-switches by VIN on connect)", fontSize = 12.sp)
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
@@ -384,12 +396,20 @@ private fun DriveScreen(vm: MainViewModel, state: UiState, onOpenHud: () -> Unit
     val r = state.readings
     val sup: (Int) -> Boolean = { state.supportedPids.isEmpty() || it in state.supportedPids }
     val avgMpgUs = if (state.tripGallons > 1e-6) state.tripMiles / state.tripGallons else 0.0
+
+    // Keep the screen awake while on the Drive tab (dash mounting).
+    val view = LocalView.current
+    DisposableEffect(state.keepScreenOn) {
+        view.keepScreenOn = state.keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
+
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Trip average", color = MaterialTheme.colorScheme.secondary)
-        Text(formatEconomy(avgMpgUs, state.economyUnit), fontSize = 44.sp, fontWeight = FontWeight.Bold)
+        Text(formatEconomy(avgMpgUs, state.economyUnit), fontSize = 56.sp, fontWeight = FontWeight.Bold)
         Text("Instant: ${formatEconomy(r.instMpg, state.economyUnit)}", fontSize = 18.sp)
         Text("${methodLabel(state.mpgMethod)} · ${state.vehicleLabel}",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
@@ -613,6 +633,80 @@ private fun TripsScreen(vm: MainViewModel, state: UiState) {
                         Text("${"%.1f".format(br.voltage)} V", fontSize = 12.sp,
                             fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+
+        if (state.maintenance.isNotEmpty()) {
+            item {
+                HorizontalDivider()
+                Text("Maintenance", fontWeight = FontWeight.SemiBold)
+                Text("Odometer (app-tracked): ${"%.0f".format(state.odometer)} mi", fontSize = 12.sp)
+                var odoText by remember { mutableStateOf("") }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = odoText, onValueChange = { odoText = it },
+                        label = { Text("Set odometer (mi)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(onClick = { odoText.toDoubleOrNull()?.let { vm.setOdometer(it); odoText = "" } },
+                        enabled = state.connected) { Text("Set") }
+                }
+            }
+            items(state.maintenance) { m ->
+                val remaining = m.remaining(state.odometer)
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(m.name, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (remaining <= 0) "DUE — ${"%.0f".format(-remaining)} mi over"
+                                else "in ${"%.0f".format(remaining)} mi (every ${m.intervalMiles})",
+                                fontSize = 12.sp,
+                                color = if (remaining <= 0) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        TextButton(onClick = { vm.markServiceDone(m.name) }, enabled = state.connected) {
+                            Text("Done")
+                        }
+                    }
+                }
+            }
+            item {
+                var svcName by remember { mutableStateOf("") }
+                var svcInterval by remember { mutableStateOf("") }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = svcName, onValueChange = { svcName = it },
+                            label = { Text("Service item") }, singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = svcInterval, onValueChange = { svcInterval = it },
+                            label = { Text("Every mi") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            val iv = svcInterval.toIntOrNull()
+                            if (svcName.isNotBlank() && iv != null && iv > 0) {
+                                vm.addServiceItem(svcName.trim(), iv); svcName = ""; svcInterval = ""
+                            }
+                        },
+                        enabled = state.connected
+                    ) { Text("Add service item") }
                 }
             }
         }
