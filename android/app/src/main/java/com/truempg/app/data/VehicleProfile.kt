@@ -20,6 +20,7 @@ data class VehicleProfile(
     val fuelType: Int = ObdMathFuel.GASOLINE,
     val displacementL: Double = 2.7,
     val methodOverride: MpgMethod? = null,
+    val turbo: Boolean = false,
 )
 
 /** Small indirection so the data class default doesn't import ObdMath directly. */
@@ -55,6 +56,7 @@ class VehicleStore(context: Context) {
         put("fuelType", p.fuelType)
         put("displacementL", p.displacementL)
         put("methodOverride", p.methodOverride?.name ?: JSONObject.NULL)
+        put("turbo", p.turbo)
     }
 
     private fun fromJson(o: JSONObject): VehicleProfile {
@@ -72,6 +74,7 @@ class VehicleStore(context: Context) {
             displacementL = o.optDouble("displacementL", 2.7),
             methodOverride = if (mo.isEmpty() || mo == "null") null
             else runCatching { MpgMethod.valueOf(mo) }.getOrNull(),
+            turbo = o.optBoolean("turbo", false),
         )
     }
 }

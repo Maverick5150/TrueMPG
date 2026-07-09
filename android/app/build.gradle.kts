@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.9: Phase 6 - black-box CSV logging, battery-health trends,
-        // trip/log CSV export, root-cause analyzer
-        versionCode = 10
-        versionName = "1.0.9"
+        // 1.1.0: Phase 7 - driving coach, boost gauge, 0-60/quarter-mile
+        // performance timers, mirrored HUD mode
+        versionCode = 11
+        versionName = "1.1.0"
     }
 
     buildTypes {

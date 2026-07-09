@@ -85,4 +85,16 @@ data class UiState(
     val batteryAvg: Double? = null,
     val diagnosing: Boolean = false,
     val diagnosis: Diagnosis? = null,
+    // Phase 7: driving coach, boost, performance timers
+    val isTurbo: Boolean = false,
+    val boostPsi: Double = 0.0,
+    val peakBoostPsi: Double = 0.0,
+    val coachScore: Int = 100,
+    val coachHardAccels: Int = 0,
+    val coachIdlePct: Double = 0.0,
+    val coachHighLoadPct: Double = 0.0,
+    val coachTip: String = "",
+    val best060Sec: Double = 0.0,
+    val bestQuarterSec: Double = 0.0,
+    val bestQuarterMph: Double = 0.0,
 )

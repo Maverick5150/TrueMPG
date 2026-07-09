@@ -27,6 +27,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlin.math.roundToInt
 
 /**
  * Process-wide single source of truth. Owns the ObdManager, capability
@@ -55,6 +56,25 @@ object ObdRepository {
     private var captureUntilMs = 0L
     private var captureMin = Double.MAX_VALUE
     private var batteryCaptured = true
+
+    // Phase 7: driving coach, boost, performance timers
+    private var baroKpa = 101.3
+    private var peakBoostKpa = 0.0
+    private var coachActiveSec = 0.0
+    private var coachIdleSec = 0.0
+    private var coachHighLoadSec = 0.0
+    private var coachIdleGal = 0.0
+    private var coachHardAccels = 0
+    private var prevMph = 0.0
+    private var accelArmed = false
+    private var launchActive = false
+    private var launchStartMs = 0L
+    private var launchDist = 0.0
+    private var run060 = 0.0
+    private var runQuarter = 0.0
+    private var best060 = 0.0
+    private var bestQuarter = 0.0
+    private var bestQuarterMph = 0.0
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
@@ -289,6 +309,7 @@ object ObdRepository {
         }
         currentProfile = profile
 
+        baroKpa = (try { obd.queryPid(0x33)?.getOrNull(0)?.toDouble() } catch (e: Exception) { null }) ?: 101.3
         val method = ObdMath.selectMethod(profile.supportedPids, profile.methodOverride)
         state.update {
             it.copy(
@@ -296,6 +317,7 @@ object ObdRepository {
                 protocol = profile.protocol, supportedPids = profile.supportedPids,
                 fuelType = profile.fuelType, displacementL = profile.displacementL,
                 mpgMethod = method, methodOverride = profile.methodOverride,
+                isTurbo = profile.turbo,
             )
         }
         firedAlerts.clear()
@@ -466,10 +488,57 @@ object ObdRepository {
             active = true
             tripStartMs = System.currentTimeMillis()
             firedAlerts.clear()                  // new trip -> alerts fire again
+            resetCoach()
             if (settings.blackBoxEnabled) blackBox.start(tripStartMs)
         }
         val addMiles = if (active) r.mph * dtHours else 0.0
         val addGals = if (active) gph * dtHours else 0.0
+
+        // ---- Phase 7: boost / coach / performance timers ----
+        val dtSec = dtHours * 3600.0
+        val boostKpa = (r.mapk - baroKpa).coerceAtLeast(0.0)
+        var turbo = snap.isTurbo
+        if (!turbo && r.mapk > baroKpa + 10.0) { turbo = true; markTurbo() }
+        if (active) {
+            peakBoostKpa = maxOf(peakBoostKpa, boostKpa)
+            coachActiveSec += dtSec
+            if (r.rpm > 300 && r.mph < 1.0) { coachIdleSec += dtSec; coachIdleGal += gph * dtHours }
+            r.load?.let { if (it > 75.0) coachHighLoadSec += dtSec }
+            val accel = if (dtSec > 0.05) (r.mph - prevMph) / dtSec else 0.0
+            if (accel > 7.0 && !accelArmed) { coachHardAccels++; accelArmed = true }
+            if (accel < 3.0) accelArmed = false
+        }
+        val nowMs = System.currentTimeMillis()
+        if (!launchActive && prevMph < 1.0 && r.mph >= 1.0) {
+            launchActive = true; launchStartMs = nowMs; launchDist = 0.0; run060 = 0.0; runQuarter = 0.0
+        }
+        if (launchActive) {
+            launchDist += r.mph * dtHours
+            val el = (nowMs - launchStartMs) / 1000.0
+            if (run060 == 0.0 && r.mph >= 60.0) {
+                run060 = el; if (best060 == 0.0 || el < best060) best060 = el
+            }
+            if (runQuarter == 0.0 && launchDist >= 0.25) {
+                runQuarter = el
+                if (bestQuarter == 0.0 || el < bestQuarter) { bestQuarter = el; bestQuarterMph = r.mph }
+            }
+            if (r.mph < 1.0) launchActive = false
+        }
+        prevMph = r.mph
+
+        val idlePct = if (coachActiveSec > 0) coachIdleSec / coachActiveSec * 100.0 else 0.0
+        val highPct = if (coachActiveSec > 0) coachHighLoadSec / coachActiveSec * 100.0 else 0.0
+        val score = (100.0 - idlePct * 0.5 - coachHardAccels * 3.0 - highPct * 0.2)
+            .coerceIn(0.0, 100.0).toInt()
+        val tripGal = snap.tripGallons + addGals
+        val idleFuelPct = if (tripGal > 1e-6) coachIdleGal / tripGal * 100.0 else 0.0
+        val tip = when {
+            idleFuelPct > 15 -> "${idleFuelPct.roundToInt()}% of fuel burned at idle — shut off when parked."
+            coachHardAccels >= 5 -> "$coachHardAccels hard accelerations — ease into the throttle for MPG."
+            highPct > 40 -> "High load ${highPct.roundToInt()}% of the drive — anticipate and coast more."
+            active -> "Smooth so far — nice work."
+            else -> ""
+        }
 
         state.update { st ->
             st.copy(
@@ -482,6 +551,17 @@ object ObdRepository {
                 else st.tripElapsedSec,
                 galSinceFillup = sinceGal,
                 milesSinceFillup = sinceMiles,
+                isTurbo = turbo,
+                boostPsi = boostKpa * 0.145038,
+                peakBoostPsi = peakBoostKpa * 0.145038,
+                coachScore = score,
+                coachHardAccels = coachHardAccels,
+                coachIdlePct = idlePct,
+                coachHighLoadPct = highPct,
+                coachTip = tip,
+                best060Sec = best060,
+                bestQuarterSec = bestQuarter,
+                bestQuarterMph = bestQuarterMph,
             )
         }
         if (blackBox.active && active) {
@@ -511,6 +591,19 @@ object ObdRepository {
                 Alerts.post(app, "battery".hashCode(), "Weak battery",
                     "Start voltage ${"%.1f".format(crankV)} V is low — battery/charging may be failing.")
         }
+    }
+
+    private fun markTurbo() {
+        val p = currentProfile ?: return
+        if (!p.turbo) {
+            currentProfile = p.copy(turbo = true)
+            vehicleStore.save(currentProfile!!)
+        }
+    }
+
+    private fun resetCoach() {
+        coachActiveSec = 0.0; coachIdleSec = 0.0; coachHighLoadSec = 0.0
+        coachIdleGal = 0.0; coachHardAccels = 0; peakBoostKpa = 0.0; accelArmed = false
     }
 
     private fun maybePersistActiveTrip() {
@@ -626,6 +719,7 @@ object ObdRepository {
     fun startTrip() {
         tripStartMs = System.currentTimeMillis()
         firedAlerts.clear()
+        resetCoach()
         if (settings.blackBoxEnabled) blackBox.start(tripStartMs)
         settings.saveActiveTrip(tripStartMs, 0.0, 0.0)
         state.update { it.copy(tripActive = true, tripMiles = 0.0, tripGallons = 0.0, tripElapsedSec = 0) }
@@ -636,12 +730,20 @@ object ObdRepository {
     private fun autoSaveActiveTrip() {
         val s = state.value
         if (s.tripActive && (s.tripMiles > 0.0 || s.tripGallons > 0.0)) {
+            val idlePct = if (coachActiveSec > 0) coachIdleSec / coachActiveSec * 100.0 else 0.0
+            val highPct = if (coachActiveSec > 0) coachHighLoadSec / coachActiveSec * 100.0 else 0.0
+            val score = (100.0 - idlePct * 0.5 - coachHardAccels * 3.0 - highPct * 0.2)
+                .coerceIn(0.0, 100.0).toInt()
             tripStore.add(
                 Trip(
                     startedAt = tripStartMs,
                     durationSec = (System.currentTimeMillis() - tripStartMs) / 1000,
                     miles = s.tripMiles,
                     gallons = s.tripGallons,
+                    score = score,
+                    idlePct = idlePct,
+                    hardAccels = coachHardAccels,
+                    peakBoostPsi = peakBoostKpa * 0.145038,
                 )
             )
         }

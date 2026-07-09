@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +20,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +81,12 @@ class MainActivity : ComponentActivity() {
 private fun AppRoot(vm: MainViewModel) {
     val state by vm.state.collectAsState()
     var tab by remember { mutableStateOf(0) }
+    var showHud by remember { mutableStateOf(false) }
+
+    if (showHud) {
+        HudScreen(state) { showHud = false }
+        return
+    }
 
     Scaffold(
         bottomBar = {
@@ -102,7 +112,7 @@ private fun AppRoot(vm: MainViewModel) {
         Box(Modifier.padding(pad)) {
             when (tab) {
                 0 -> ConnectScreen(vm, state)
-                1 -> DriveScreen(vm, state)
+                1 -> DriveScreen(vm, state) { showHud = true }
                 2 -> LiveScreen(vm, state)
                 3 -> TripsScreen(vm, state)
                 else -> CodesScreen(vm, state)
@@ -370,7 +380,7 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
 }
 
 @Composable
-private fun DriveScreen(vm: MainViewModel, state: UiState) {
+private fun DriveScreen(vm: MainViewModel, state: UiState, onOpenHud: () -> Unit) {
     val r = state.readings
     val sup: (Int) -> Boolean = { state.supportedPids.isEmpty() || it in state.supportedPids }
     val avgMpgUs = if (state.tripGallons > 1e-6) state.tripMiles / state.tripGallons else 0.0
@@ -418,9 +428,56 @@ private fun DriveScreen(vm: MainViewModel, state: UiState) {
         if (sup(0x2F)) r.fuelLevelPct?.let { Gauge("Fuel level", "%.0f %%".format(it)) }
         if (sup(0x42)) r.volts?.let { Gauge("Battery", "%.1f V".format(it)) }
         if (sup(0x44)) Gauge("Lambda", "%.3f".format(r.lambda))
+        if (state.isTurbo)
+            Gauge("Boost", "%.1f psi (peak %.1f)".format(state.boostPsi, state.peakBoostPsi))
+
+        HorizontalDivider()
+        Text("Driving coach", fontWeight = FontWeight.SemiBold)
+        Text("Trip score: ${state.coachScore}/100", fontSize = 20.sp,
+            color = MaterialTheme.colorScheme.secondary)
+        Text("${state.coachHardAccels} hard accels · idle ${"%.0f".format(state.coachIdlePct)}% · " +
+            "high load ${"%.0f".format(state.coachHighLoadPct)}%", fontSize = 12.sp)
+        if (state.coachTip.isNotEmpty()) Text(state.coachTip, fontSize = 12.sp)
+
+        HorizontalDivider()
+        Text("Performance", fontWeight = FontWeight.SemiBold)
+        Text("Best 0-60 mph: ${if (state.best060Sec > 0) "%.1f s".format(state.best060Sec) else "--"}",
+            fontSize = 13.sp)
+        Text("Best 1/4 mile: ${if (state.bestQuarterSec > 0) "%.1f s @ %.0f mph".format(state.bestQuarterSec, state.bestQuarterMph) else "--"}",
+            fontSize = 13.sp)
+        Text("Timers arm automatically from a stop; OBD speed is ~1s resolution so times are approximate.",
+            fontSize = 11.sp)
+
+        Spacer(Modifier.height(4.dp))
+        Button(onClick = onOpenHud, enabled = state.connected) { Text("HUD mode") }
 
         if (!state.connected) Text("Connect on the Connect tab first.",
             color = MaterialTheme.colorScheme.error)
+    }
+}
+
+@Composable
+private fun HudScreen(state: UiState, onExit: () -> Unit) {
+    val avgMpgUs = if (state.tripGallons > 1e-6) state.tripMiles / state.tripGallons else 0.0
+    Box(
+        Modifier.fillMaxSize().background(Color.Black).clickable { onExit() },
+        contentAlignment = Alignment.Center
+    ) {
+        // Mirror horizontally so it reads correctly reflected in the windshield.
+        Column(
+            Modifier.graphicsLayer { scaleX = -1f },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(formatSpeed(state.readings.mph, state.distanceUnit),
+                color = Color(0xFF39FF14), fontSize = 96.sp, fontWeight = FontWeight.Bold)
+            Text(formatEconomy(state.readings.instMpg, state.economyUnit),
+                color = Color(0xFF39FF14), fontSize = 44.sp, fontWeight = FontWeight.Bold)
+            if (state.isTurbo)
+                Text("${"%.1f".format(state.boostPsi)} psi",
+                    color = Color(0xFF39FF14), fontSize = 36.sp, fontWeight = FontWeight.Bold)
+            Text("tap to exit", color = Color(0xFF2A8F0E), fontSize = 14.sp)
+        }
     }
 }
 
@@ -605,6 +662,10 @@ private fun TripRow(t: Trip, dateLabel: String, pricePerGal: Double, logName: St
                 color = MaterialTheme.colorScheme.secondary)
             Text("${"%.2f".format(t.miles)} mi · ${"%.3f".format(t.gallons)} gal · " +
                 "${t.durationSec / 60}m ${t.durationSec % 60}s", fontSize = 12.sp)
+            if (t.score > 0)
+                Text("Score ${t.score}/100 · ${t.hardAccels} hard accels · idle ${"%.0f".format(t.idlePct)}%" +
+                    (if (t.peakBoostPsi > 0.5) " · peak ${"%.1f".format(t.peakBoostPsi)} psi" else ""),
+                    fontSize = 12.sp)
             if (pricePerGal > 0) {
                 val cost = t.gallons * pricePerGal
                 val perMile = if (t.miles > 0.01) cost / t.miles else 0.0
