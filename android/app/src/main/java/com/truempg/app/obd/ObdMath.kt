@@ -54,6 +54,7 @@ object ObdMath {
     fun throttlePct(b: List<Int>) = b.getOrNull(0)?.let { it * 100.0 / 255.0 }
     fun engineLoadPct(b: List<Int>) = b.getOrNull(0)?.let { it * 100.0 / 255.0 }
     fun fuelLevelPct(b: List<Int>) = b.getOrNull(0)?.let { it * 100.0 / 255.0 }
+    fun fuelTrimPct(b: List<Int>) = b.getOrNull(0)?.let { (it - 128) * 100.0 / 128.0 }
     fun timingAdv(b: List<Int>) = b.getOrNull(0)?.let { it / 2.0 - 64.0 }
     fun moduleVolts(b: List<Int>) = if (b.size >= 2) ((b[0] * 256) + b[1]) / 1000.0 else null
     fun lambda(b: List<Int>) = if (b.size >= 2) ((b[0] * 256) + b[1]) / 32768.0 else null

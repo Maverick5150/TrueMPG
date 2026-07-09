@@ -59,7 +59,9 @@
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" e3b4012)",
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 0b54be9)",
       "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" fe81c11)",
-      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 2f256ef)"
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 2f256ef)",
+      "Bash(python -u \"C:/Users/Maverick/AppData/Local/Temp/claude/C--Users-Maverick-Desktop-TrueMPG/c89d4d2b-1186-46d1-a1f0-89c5d350c91d/scratchpad/poll_ci.py\" 77c780c)",
+      "WebFetch(domain:api.github.com)"
     ]
   }
 }
