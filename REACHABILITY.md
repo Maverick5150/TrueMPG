@@ -1,7 +1,7 @@
 # 2020 Ford F-150 XL (2.7L, 4WD) — OBD Reachability Map
 
 Adapter: **OBDLink MX+** (genuine — STN2255, firmware r3.1.3) on **COM5**
-VIN: `[VIN-REDACTED]`  (adapter returned 16 chars; leading `1` implied)
+VIN: redacted for privacy (readable on-device via OBD mode 09)
 
 ## Bus reachability (via OBD-II port, through 2018+ Secure Gateway Module)
 
