@@ -17,9 +17,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.truempg.app.data.Trip
 import com.truempg.app.ui.TrueMpgTheme
@@ -33,12 +36,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             TrueMpgTheme {
                 val vm: MainViewModel = viewModel()
-                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT,
-                        android.Manifest.permission.BLUETOOTH_SCAN)
-                else
-                    arrayOf(android.Manifest.permission.BLUETOOTH,
-                        android.Manifest.permission.BLUETOOTH_ADMIN)
+                val permissions = buildList {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        add(android.Manifest.permission.BLUETOOTH_CONNECT)
+                        add(android.Manifest.permission.BLUETOOTH_SCAN)
+                    } else {
+                        add(android.Manifest.permission.BLUETOOTH)
+                        add(android.Manifest.permission.BLUETOOTH_ADMIN)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        add(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }.toTypedArray()
 
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -126,6 +135,37 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
                 }
             }
         }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        Text("Automatic operation", fontWeight = FontWeight.SemiBold)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Auto-connect on truck start")
+            Switch(checked = state.autoConnect, onCheckedChange = { vm.setAutoConnect(it) })
+        }
+        state.savedAdapter?.let { Text("Saved adapter: $it", fontSize = 12.sp) }
+        val ctx = LocalContext.current
+        OutlinedButton(onClick = {
+            try {
+                ctx.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:" + ctx.packageName)
+                    )
+                )
+            } catch (e: Exception) {
+                try { ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+            }
+        }) { Text("Allow background running") }
+        Text(
+            "Auto-connect starts monitoring the moment the truck powers up the " +
+                "adapter. \"Allow background running\" keeps the service alive mid-drive.",
+            fontSize = 12.sp
+        )
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()

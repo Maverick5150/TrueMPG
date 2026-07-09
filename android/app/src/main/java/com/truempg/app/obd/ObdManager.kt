@@ -59,6 +59,10 @@ class ObdManager(context: Context) {
     fun bluetoothSupported() = adapter != null
     fun bluetoothEnabled() = adapter?.isEnabled == true
 
+    /** Resolve a paired device by MAC address (for auto-connect, no scan). */
+    fun deviceFor(address: String): BluetoothDevice? =
+        try { adapter?.getRemoteDevice(address) } catch (e: Exception) { null }
+
     private val SPP_UUID: UUID =
         UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
