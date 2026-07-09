@@ -54,6 +54,19 @@ class Settings(context: Context) {
         get() = Double.fromBits(p.getLong("lowFuelPct", (10.0).toRawBits()))
         set(v) { p.edit().putLong("lowFuelPct", v.toRawBits()).apply() }
 
+    // ---- fuel accounting (since last fill-up) ----
+    var galSinceFillup: Double
+        get() = Double.fromBits(p.getLong("galSinceFillup", (0.0).toRawBits()))
+        set(v) { p.edit().putLong("galSinceFillup", v.toRawBits()).apply() }
+
+    var milesSinceFillup: Double
+        get() = Double.fromBits(p.getLong("milesSinceFillup", (0.0).toRawBits()))
+        set(v) { p.edit().putLong("milesSinceFillup", v.toRawBits()).apply() }
+
+    var lastPricePerGal: Double
+        get() = Double.fromBits(p.getLong("lastPricePerGal", (0.0).toRawBits()))
+        set(v) { p.edit().putLong("lastPricePerGal", v.toRawBits()).apply() }
+
     var ve: Double
         get() = Double.fromBits(p.getLong("ve", (0.85).toRawBits()))
         set(v) { p.edit().putLong("ve", v.toRawBits()).apply() }

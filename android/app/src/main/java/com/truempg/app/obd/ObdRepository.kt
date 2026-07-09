@@ -7,6 +7,10 @@ import com.truempg.app.UiState
 import com.truempg.app.data.Settings
 import com.truempg.app.data.Trip
 import com.truempg.app.data.TripStore
+import com.truempg.app.data.CalProfile
+import com.truempg.app.data.CalibrationStore
+import com.truempg.app.data.Fillup
+import com.truempg.app.data.FillupStore
 import com.truempg.app.data.VehicleProfile
 import com.truempg.app.data.VehicleStore
 import com.truempg.app.obd.ObdMath.MpgMethod
@@ -32,8 +36,15 @@ object ObdRepository {
     private lateinit var obd: ObdManager
     private lateinit var tripStore: TripStore
     private lateinit var vehicleStore: VehicleStore
+    private lateinit var calStore: CalibrationStore
+    private lateinit var fillupStore: FillupStore
     private lateinit var settings: Settings
     @Volatile private var inited = false
+
+    // Phase 5: calibration + fuel accounting
+    @Volatile private var activeFactor = 1.0        // multiplies estimated fuel flow
+    private var sinceGal = 0.0                       // fuel used since last fill-up
+    private var sinceMiles = 0.0
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
@@ -63,7 +74,11 @@ object ObdRepository {
         obd = ObdManager(app)
         tripStore = TripStore(app)
         vehicleStore = VehicleStore(app)
+        calStore = CalibrationStore(app)
+        fillupStore = FillupStore(app)
         settings = Settings(app)
+        sinceGal = settings.galSinceFillup
+        sinceMiles = settings.milesSinceFillup
         val active = settings.loadActiveTrip()
         if (active != null) tripStartMs = active.startedAt
         state.value = UiState(
@@ -75,6 +90,9 @@ object ObdRepository {
             alertsEnabled = settings.alertsEnabled,
             coolantMaxF = settings.coolantMaxF,
             lowFuelPct = settings.lowFuelPct,
+            galSinceFillup = sinceGal,
+            milesSinceFillup = sinceMiles,
+            lastPricePerGal = settings.lastPricePerGal,
             autoConnect = settings.autoConnect,
             savedAdapter = settings.savedAdapterAddress,
             tripActive = active != null,
@@ -265,7 +283,86 @@ object ObdRepository {
             )
         }
         firedAlerts.clear()
+        loadCalibration(profile.id)
         refreshDiagnostics(alertOnNew = false)   // seed readiness/freeze/DTCs (no alert)
+    }
+
+    // ---- Phase 5: calibration profiles + fill-up wizard ----
+    private fun loadCalibration(vehicleId: String) {
+        val profs = calStore.profiles(vehicleId)
+        val activeName = calStore.activeName(vehicleId)
+        activeFactor = (profs.firstOrNull { it.name == activeName } ?: profs.first()).factor
+        val fills = fillupStore.loadFor(vehicleId)
+        state.update {
+            it.copy(
+                calProfiles = profs.map { p -> p.name },
+                activeCalName = activeName,
+                activeFactor = activeFactor,
+                fillups = fills.take(20),
+                monthlyFuelCost = monthlySpend(fills),
+            )
+        }
+    }
+
+    private fun monthlySpend(fills: List<Fillup>): Double {
+        val now = java.util.Calendar.getInstance()
+        val ym = now.get(java.util.Calendar.YEAR) * 100 + now.get(java.util.Calendar.MONTH)
+        return fills.filter {
+            val c = java.util.Calendar.getInstance().apply { timeInMillis = it.timestamp }
+            c.get(java.util.Calendar.YEAR) * 100 + c.get(java.util.Calendar.MONTH) == ym
+        }.sumOf { it.cost }
+    }
+
+    /** Log a pump fill-up: auto-calibrate the active profile and record cost. */
+    fun logFillup(gallons: Double, pricePerGal: Double) {
+        scope.launch {
+            val vehicleId = currentProfile?.id ?: return@launch
+            val logged = sinceGal
+            val miles = sinceMiles
+            if (logged > 0.05 && gallons > 0.05) {
+                val newFactor = (activeFactor * (gallons / logged)).coerceIn(0.3, 3.0)
+                activeFactor = newFactor
+                calStore.upsert(vehicleId, CalProfile(state.value.activeCalName, newFactor))
+            }
+            fillupStore.add(
+                Fillup(vehicleId, System.currentTimeMillis(), gallons, pricePerGal, miles, logged)
+            )
+            settings.lastPricePerGal = pricePerGal
+            sinceGal = 0.0; sinceMiles = 0.0
+            settings.galSinceFillup = 0.0; settings.milesSinceFillup = 0.0
+            val fills = fillupStore.loadFor(vehicleId)
+            state.update {
+                it.copy(
+                    activeFactor = activeFactor,
+                    calProfiles = calStore.profiles(vehicleId).map { p -> p.name },
+                    galSinceFillup = 0.0, milesSinceFillup = 0.0,
+                    lastPricePerGal = pricePerGal,
+                    fillups = fills.take(20),
+                    monthlyFuelCost = monthlySpend(fills),
+                )
+            }
+        }
+    }
+
+    fun setCalProfile(name: String) {
+        val vehicleId = currentProfile?.id ?: return
+        calStore.setActive(vehicleId, name)
+        activeFactor = calStore.active(vehicleId).factor
+        state.update { it.copy(activeCalName = name, activeFactor = activeFactor) }
+    }
+
+    fun addCalProfile(name: String) {
+        val vehicleId = currentProfile?.id ?: return
+        if (name.isBlank()) return
+        calStore.upsert(vehicleId, CalProfile(name, 1.0))
+        calStore.setActive(vehicleId, name)
+        activeFactor = 1.0
+        state.update {
+            it.copy(
+                calProfiles = calStore.profiles(vehicleId).map { p -> p.name },
+                activeCalName = name, activeFactor = 1.0,
+            )
+        }
     }
 
     fun disconnect() {
@@ -330,14 +427,19 @@ object ObdRepository {
     private fun applyReading(r: Raw, dtHours: Double) {
         val snap = state.value
         val diesel = ObdMath.isDiesel(snap.fuelType)
-        val gph = when (snap.mpgMethod) {
+        val rawGph = when (snap.mpgMethod) {
             MpgMethod.FUEL_RATE -> ObdMath.gphFromFuelRate(r.fuelRate ?: 0.0)
             MpgMethod.MAF -> ObdMath.gphFromMaf(r.maf ?: 0.0, r.lam, diesel)
             MpgMethod.SPEED_DENSITY ->
                 ObdMath.gphSpeedDensity(r.rpm, r.mapk, r.iat, r.lam, snap.ve, snap.displacementL, diesel)
             MpgMethod.NONE -> 0.0
         }
+        val gph = rawGph * activeFactor          // apply active calibration profile
         val inst = ObdMath.instMpg(r.mph, gph)
+
+        // Fuel accounting since last fill-up: all fuel burned, in a trip or not.
+        sinceGal += gph * dtHours
+        sinceMiles += r.mph * dtHours
 
         var active = snap.tripActive
         if (!active && r.mph > 0.5) {
@@ -357,17 +459,21 @@ object ObdRepository {
                 tripGallons = st.tripGallons + addGals,
                 tripElapsedSec = if (active) (System.currentTimeMillis() - tripStartMs) / 1000
                 else st.tripElapsedSec,
+                galSinceFillup = sinceGal,
+                milesSinceFillup = sinceMiles,
             )
         }
         maybePersistActiveTrip()
     }
 
     private fun maybePersistActiveTrip() {
-        val s = state.value
         val now = System.currentTimeMillis()
-        if (s.tripActive && now - lastPersistMs > 5000) {
+        if (now - lastPersistMs > 5000) {
             lastPersistMs = now
-            settings.saveActiveTrip(tripStartMs, s.tripMiles, s.tripGallons)
+            val s = state.value
+            if (s.tripActive) settings.saveActiveTrip(tripStartMs, s.tripMiles, s.tripGallons)
+            settings.galSinceFillup = sinceGal      // survives across trips / reboot
+            settings.milesSinceFillup = sinceMiles
         }
     }
 

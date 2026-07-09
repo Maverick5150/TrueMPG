@@ -12,10 +12,10 @@ android {
         applicationId = "com.truempg.app"
         minSdk = 26
         targetSdk = 34
-        // 1.0.6: Phase 4 - live "everything" view, driver alerts, offline DTC
-        // descriptions, I/M readiness + freeze-frame DTC
-        versionCode = 7
-        versionName = "1.0.6"
+        // 1.0.7: Phase 5 - fill-up calibration wizard, tow/haul profiles,
+        // fuel cost tracking
+        versionCode = 8
+        versionName = "1.0.7"
     }
 
     buildTypes {

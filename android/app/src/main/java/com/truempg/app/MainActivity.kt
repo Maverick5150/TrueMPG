@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Intent
@@ -287,6 +289,63 @@ private fun ConnectScreen(vm: MainViewModel, state: UiState) {
             Text("Fuel model: ${methodLabel(state.mpgMethod)} — no calibration needed.",
                 fontSize = 12.sp)
         }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        Text("Calibration & fuel", fontWeight = FontWeight.SemiBold)
+        Text("Active profile: ${state.activeCalName} · factor ${"%.3f".format(state.activeFactor)}",
+            fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            state.calProfiles.forEach { name ->
+                FilterChip(selected = name == state.activeCalName,
+                    onClick = { vm.setCalProfile(name) }, label = { Text(name) })
+            }
+        }
+        var newProfile by remember { mutableStateOf("") }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = newProfile, onValueChange = { newProfile = it },
+                label = { Text("New profile (e.g. Towing)") },
+                singleLine = true, modifier = Modifier.weight(1f)
+            )
+            Button(
+                onClick = { vm.addCalProfile(newProfile.trim()); newProfile = "" },
+                enabled = state.connected && newProfile.isNotBlank()
+            ) { Text("Add") }
+        }
+
+        Text("Since last fill-up: ${"%.1f".format(state.milesSinceFillup)} mi · " +
+            "${"%.2f".format(state.galSinceFillup)} gal used (est)", fontSize = 12.sp)
+        var fillGal by remember { mutableStateOf("") }
+        var fillPrice by remember { mutableStateOf("") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = fillGal, onValueChange = { fillGal = it },
+                label = { Text("Pump gallons") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = fillPrice, onValueChange = { fillPrice = it },
+                label = { Text("Price /gal") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Button(
+            onClick = {
+                val g = fillGal.toDoubleOrNull()
+                val p = fillPrice.toDoubleOrNull() ?: 0.0
+                if (g != null && g > 0) { vm.logFillup(g, p); fillGal = ""; fillPrice = "" }
+            },
+            enabled = state.connected && state.galSinceFillup > 0.05
+        ) { Text("Log fill-up & calibrate") }
+        Text("Enter what the pump showed. The app tunes the active profile so estimated " +
+            "MPG matches your real MPG, and tracks fuel cost per trip and per month.",
+            fontSize = 12.sp)
     }
 }
 
@@ -375,25 +434,51 @@ private fun methodLabel(m: MpgMethod): String = when (m) {
 @Composable
 private fun TripsScreen(vm: MainViewModel, state: UiState) {
     val fmt = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("Trip history", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            if (state.trips.isNotEmpty())
-                TextButton(onClick = { vm.clearTripHistory() }) { Text("Clear") }
-        }
-        if (state.trips.isEmpty()) {
-            Text("No saved trips yet. Start one on the Drive tab.")
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.trips) { t -> TripRow(t, fmt.format(Date(t.startedAt))) }
+    val price = state.lastPricePerGal
+    LazyColumn(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Trips & fuel", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                if (state.trips.isNotEmpty())
+                    TextButton(onClick = { vm.clearTripHistory() }) { Text("Clear") }
             }
+            if (state.monthlyFuelCost > 0)
+                Text("This month: $${"%.2f".format(state.monthlyFuelCost)} on fuel",
+                    color = MaterialTheme.colorScheme.secondary)
+        }
+        if (state.fillups.isNotEmpty()) {
+            item { Text("Recent fill-ups", fontWeight = FontWeight.SemiBold) }
+            items(state.fillups.take(5)) { f ->
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("${"%.1f".format(f.actualMpg)} MPG actual · " +
+                            "${"%.2f".format(f.gallons)} gal", fontWeight = FontWeight.Bold)
+                        Text("${fmt.format(Date(f.timestamp))}" +
+                            (if (f.pricePerGal > 0)
+                                " · $${"%.2f".format(f.cost)} @ $${"%.2f".format(f.pricePerGal)}/gal"
+                            else ""), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        item { Text("Trip history", fontWeight = FontWeight.SemiBold) }
+        if (state.trips.isEmpty()) {
+            item { Text("No saved trips yet. Start one on the Drive tab.") }
+        } else {
+            items(state.trips) { t -> TripRow(t, fmt.format(Date(t.startedAt)), price) }
         }
     }
 }
 
 @Composable
-private fun TripRow(t: Trip, dateLabel: String) {
+private fun TripRow(t: Trip, dateLabel: String, pricePerGal: Double) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(dateLabel, fontWeight = FontWeight.Bold)
@@ -401,6 +486,11 @@ private fun TripRow(t: Trip, dateLabel: String) {
                 color = MaterialTheme.colorScheme.secondary)
             Text("${"%.2f".format(t.miles)} mi · ${"%.3f".format(t.gallons)} gal · " +
                 "${t.durationSec / 60}m ${t.durationSec % 60}s", fontSize = 12.sp)
+            if (pricePerGal > 0) {
+                val cost = t.gallons * pricePerGal
+                val perMile = if (t.miles > 0.01) cost / t.miles else 0.0
+                Text("$${"%.2f".format(cost)} · $${"%.3f".format(perMile)}/mi", fontSize = 12.sp)
+            }
         }
     }
 }

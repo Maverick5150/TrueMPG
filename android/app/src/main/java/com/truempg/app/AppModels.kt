@@ -1,5 +1,6 @@
 package com.truempg.app
 
+import com.truempg.app.data.Fillup
 import com.truempg.app.data.Trip
 import com.truempg.app.obd.ObdMath.MpgMethod
 import com.truempg.app.obd.ObdMath.Readiness
@@ -66,4 +67,13 @@ data class UiState(
     val alertsEnabled: Boolean = true,
     val coolantMaxF: Double = 230.0,
     val lowFuelPct: Double = 10.0,
+    // calibration + fuel accounting
+    val calProfiles: List<String> = listOf("Standard"),
+    val activeCalName: String = "Standard",
+    val activeFactor: Double = 1.0,
+    val galSinceFillup: Double = 0.0,
+    val milesSinceFillup: Double = 0.0,
+    val lastPricePerGal: Double = 0.0,
+    val fillups: List<Fillup> = emptyList(),
+    val monthlyFuelCost: Double = 0.0,
 )

@@ -40,4 +40,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun readDtcs() = ObdRepository.readDtcs()
     fun clearDtcs() = ObdRepository.clearDtcs()
     fun readDiagnostics() = ObdRepository.readDiagnostics()
+
+    fun logFillup(gallons: Double, pricePerGal: Double) = ObdRepository.logFillup(gallons, pricePerGal)
+    fun setCalProfile(name: String) = ObdRepository.setCalProfile(name)
+    fun addCalProfile(name: String) = ObdRepository.addCalProfile(name)
 }
